@@ -2,7 +2,8 @@
 
 Audit: `surgeon scan ~/.agents/skills ./Downloads/.agents/skills`
 **Before:** 84/100 — 4 errors, 67 warnings, 1 suggestion, 11 proposed fixes.
-**After:** 85/100 — S008 + S012 cleared; remaining errors are operator-retained duplicates.
+**After:** 87/100 — S008 + S012 cleared, 4 loose refs repointed to verified data/ paths.
+Remaining errors are operator-retained duplicates + genuinely-dead feature docs.
 
 ## Applied (operator-approved)
 
@@ -52,3 +53,12 @@ Cross-repo verification of flagged runtime refs against the real checkout
 - No skill was edited without approval; no directory deleted.
 - The two oversized skills (7.3k / 6.5k tokens) flagged for future splitting —
   risky surgery, deferred.
+
+## Workspace declarations added
+
+ on
+cs2-sales-reconciler and csfloat-image-auto-lister — refs now resolve against
+the real checkout. Effect: warnings 66→35 (verified refs stop counting), and
+refs that STILL miss escalate to errors — surfacing the 9 dead
+-era refs as real doc drift instead of noise.
+4 loose paths corrected ( →  etc.).
