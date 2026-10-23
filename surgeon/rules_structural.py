@@ -158,9 +158,23 @@ def check_skill(skill: Skill) -> list[Finding]:
     workspaces = [Path(str(w)).expanduser() for w in
                   (ws_raw if isinstance(ws_raw, list) else [ws_raw]) if ws_raw]
 
+    # Files the skill GENERATES at runtime (outputs, bundles, state) are not
+    # dead references — declare via metadata.generates.
+    gen_raw = skill.meta.get("generates") or (skill.meta.get("metadata") or {}).get("generates") or []
+    generated = {str(g) for g in (gen_raw if isinstance(gen_raw, list) else [gen_raw])}
+
     def _ref_ok(ref: str) -> bool:
-        if (skill.dir / ref).exists():
+        if ref in generated or Path(ref).name in generated:
             return True
+        # resolve against the skill dir, then ancestor dirs up to the root —
+        # variant skills legitimately share the parent's bundled resources
+        d = skill.dir
+        while True:
+            if (d / ref).exists():
+                return True
+            if d == skill.root or d.parent == d:
+                break
+            d = d.parent
         return any((w / ref).exists() for w in workspaces)
 
     for ref, line in _candidate_refs(skill):
@@ -215,7 +229,9 @@ def check_skill(skill: Skill) -> list[Finding]:
 
 
 def check_cross(skills: list[Skill]) -> list[Finding]:
-    """Findings spanning multiple skills: duplicate names."""
+    """Duplicate names across roots. Identical copies are deploy artifacts
+    (info); divergent copies are real drift — two versions of truth (error)."""
+    import hashlib
     f: list[Finding] = []
     by_name: dict[str, list[Skill]] = {}
     for s in skills:
@@ -225,9 +241,24 @@ def check_cross(skills: list[Skill]) -> list[Finding]:
         if len(group) < 2:
             continue
         locs = "; ".join(str(g.path) for g in group)
-        for g in group:
-            f.append(Finding("S009", "error", name, g.path,
-                             f"duplicate name also defined at: {locs}", fixable=True))
+        # same-name variants under a shared variants/ dir are an intentional
+        # per-agent convention, not a collision
+        if all("variants" in [p.lower() for p in g.path.parts] for g in group) and \
+           len({g.path.parent.parent for g in group}) == 1:
+            for g in group:
+                f.append(Finding("S009", "info", name, g.path,
+                                 f"agent variant of `{name}` ({g.path.parent.name})"))
+            continue
+        hashes = {hashlib.md5(g.raw.encode()).hexdigest() for g in group}
+        if len(hashes) == 1:
+            for g in group[1:]:
+                f.append(Finding("S009", "info", name, g.path,
+                                 f"deploy copy identical to canonical; locations: {locs}"))
+        else:
+            for g in group:
+                f.append(Finding("S009", "error", name, g.path,
+                                 f"DIVERGENT copies of `{name}` — versions differ; "
+                                 f"locations: {locs}", fixable=True))
     return f
 
 

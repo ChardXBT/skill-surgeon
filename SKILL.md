@@ -1,6 +1,10 @@
 ---
 name: skill-surgeon
 description: Audit an agent-skill library (SKILL.md files) for spec violations, dead references, secrets, non-portable paths, duplicate names, and trigger-description collisions, then propose and apply repairs one fix at a time with operator approval. Use when asked to review, lint, doctor, clean up, maintain, or improve a skills directory, when skills conflict or fail to trigger, or before sharing/publishing skills.
+metadata:
+  generates:
+    - surgery-plan.json
+    - surgery-log.md
 ---
 
 # Skill Surgeon

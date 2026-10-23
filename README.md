@@ -66,7 +66,7 @@ agent can maintain its own library. Meta, on purpose.
 ## Real-world proof
 
 Audited a live 18-skill production library — the author's own — end to end,
-with the approval gate engaged. Full artifacts in `examples/`
+with the approval gate engaged, then expanded to 45 skills across 4 roots including the public ai-skills source repo — finished at **93/100, 0 errors**. Full artifacts in `examples/`
 (`before-report.md`, `after-report.md`, `surgery-log.md`):
 
 - **Found real breakage:** 2 skills silently duplicated across two roots

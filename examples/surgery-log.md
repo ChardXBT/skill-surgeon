@@ -77,3 +77,24 @@ refs that STILL miss escalate to errors — surfacing the 9 dead
   second privacy-surface-audit, and the stale namewright-2026-06-22 repo copy.
 - Still open (operator decisions): duplicates policy, ai-skills repo rename,
   me-refresh generated-artifact refs (outputs, not dead links), 2 oversized skills.
+
+## Round 3 — divergence-aware duplicates + ancestor resolution
+
+Score: **93/100 A, 0 errors** across 45 skills / 4 roots (was 84→86).
+
+- S009 now distinguishes deploy copies (identical content → info) from
+  divergent copies (error). All Eric's cross-root duplicates turned out
+  content-identical — deployment, not a bug. The real divergence was
+  deployed-vs-source drift, fixed by syncing deployed edits into ai-skills
+  capabilities/ source (pushed: bd83467, c3c042f).
+- S007 resolves refs against ancestor dirs — variant skills legitimately
+  share the parent skill's bundled references/ and scripts/.
+- metadata.generates declared on me-refresh, chat-handoff,
+  professor-research-brief, skill-surgeon — files a skill produces at
+  runtime are no longer mistaken for dead references.
+- namewright: repo already moved it to capabilities/namewright with new
+  content; only the frontmatter name still said the dated slug — fixed and
+  pushed to ChardXBT/ai-skills.
+- Open by design: discord-monitor/finish agent variants share a name under
+  variants/ (intentional, info-level); 2 oversized skills; remaining warns
+  are unverified refs in not-yet-deployed capabilities skills.
