@@ -1,5 +1,7 @@
 # skill-surgeon
 
+[![30-second explainer](examples/video/poster.png)](examples/video/skill-surgeon-30s.mp4)
+
 **Linters tell you your skills are broken. This one fixes them.**
 
 Point it at a folder of `SKILL.md` files. It finds the problems — dead
@@ -74,8 +76,12 @@ published. (`internet-scan` in `examples/`)
 defects (10 commands pointing at `.claude/`-only paths, a wrong-path data
 reference, a Windows console crash), then ran both variants agent-faithful.
 Original failed twice and improvised a generic gradient page; repaired
-skill's design-system engine drove a coherent page. Screenshots, protocol
-and patch in `examples/ab-benchmark/`.
+skill's design-system engine drove a coherent page. Protocol, patch and
+screenshots in `examples/ab-benchmark/`:
+
+| Before — broken skill | After — repaired |
+|---|---|
+| ![before](examples/ab-benchmark/A-broken.png) | ![after](examples/ab-benchmark/B-fixed.png) |
 
 **The gate earned its keep.** On the first live run, the fuzzy matcher
 proposed 11 fixes — 3 were wrong and operator review refused them. Approval
