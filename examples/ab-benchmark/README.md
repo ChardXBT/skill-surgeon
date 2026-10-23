@@ -55,6 +55,30 @@ already has the patch applied — `ui-ux-pro-max-fixed/`).
 
 Score blind: shuffle the two outputs, pick the better page, then unblind.
 
+## Result (ran locally, agent-faithful)
+
+Terminal truth of the failure cascade in A:
+
+```
+$ python .claude/skills/ui-ux-pro-max/scripts/search.py ...
+-> can't open file: No such file or directory
+$ python scripts/search.py ...            # agent finds the script itself
+-> UnicodeEncodeError: 'charmap' codec can't encode ⚡   (cp1252)
+```
+
+Agent gave up and improvised. In B the same console ran the same script
+cleanly and returned a full design system — and the page was built
+**strictly from its output** (Soft UI Evolution, `#10B981`/`#8B5CF6`/`#ECFDF5`,
+Lora + Raleway, anti-patterns honored).
+
+| A — broken skill (`A-broken.png`) | B — repaired (`B-fixed.png`) |
+|---|---|
+| generic purple-gradient hero | curated pastel system (mint/cream/gold) |
+| emoji icons | stroke SVGs, consistent weight |
+| clashing gold CTA on purple | single accent violet CTA |
+| no social proof | trust strip per recommended pattern |
+| default sans-serif | specified Lora/Raleway pairing |
+
 ## Reproduce the audit
 
 ```bash
