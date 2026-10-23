@@ -70,10 +70,12 @@ target repo. Score **84 → 93/100, 0 errors**.
 **495 errors** including skills shipping references to files that were never
 published. (`internet-scan` in `examples/`)
 
-**A controlled A/B test** — took a popular UI-design skill, repaired its 3
-real defects (10 commands pointing at `.claude/`-only paths, a wrong-path
-data reference, a Windows console crash), and benchmarked original vs fixed
-in identical agent sessions. Protocol + patch in `examples/ab-benchmark/`.
+**A controlled A/B test** — repaired a popular UI-design skill's 3 real
+defects (10 commands pointing at `.claude/`-only paths, a wrong-path data
+reference, a Windows console crash), then ran both variants agent-faithful.
+Original failed twice and improvised a generic gradient page; repaired
+skill's design-system engine drove a coherent page. Screenshots, protocol
+and patch in `examples/ab-benchmark/`.
 
 **The gate earned its keep.** On the first live run, the fuzzy matcher
 proposed 11 fixes — 3 were wrong and operator review refused them. Approval
