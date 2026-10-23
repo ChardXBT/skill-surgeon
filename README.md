@@ -77,6 +77,9 @@ with the approval gate engaged. Full artifacts in `examples/`
   `hourly.md` → `assets/hourly-mode.md` — but the file lives in a *different*
   repo and the doc already said so. Operator review caught it. The gate isn't
   decoration: 3 of 11 proposals were wrong and got refused.
+- **Deep verification paid off:** cross-checking "unverified" refs against the
+  real target repo confirmed 13 resolve correctly — and exposed 9 that are dead
+  even there (`src/csmarket_auto_buyer/` was removed; docs never updated).
 - **Itself passes:** scanning skill-surgeon's own SKILL.md scores 97/100.
 
 ## Install & use

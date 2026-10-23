@@ -1,0 +1,570 @@
+{
+  "score": 85,
+  "counts": {
+    "error": 4,
+    "warn": 66,
+    "info": 0
+  },
+  "findings": [
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "applied-ai-radar",
+      "message": "reference `hourly.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\applied-ai-radar\\SKILL.md",
+      "line": 22
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "applied-ai-radar",
+      "message": "reference `daily.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\applied-ai-radar\\SKILL.md",
+      "line": 22
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "applied-ai-radar",
+      "message": "reference `hourly-scheduler.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\applied-ai-radar\\SKILL.md",
+      "line": 22
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "applied-ai-radar",
+      "message": "reference `daily-scheduler.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\applied-ai-radar\\SKILL.md",
+      "line": 22
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "applied-ai-radar",
+      "message": "reference `tests/applied-ai-radar-behavioral-cases.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\applied-ai-radar\\SKILL.md",
+      "line": 40
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "chat-handoff",
+      "message": "reference `HANDOFF.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\chat-handoff\\SKILL.md",
+      "line": 72
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cs2-sales-reconciler",
+      "message": "reference `config.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\cs2-sales-reconciler\\SKILL.md",
+      "line": 14
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cs2-sales-reconciler",
+      "message": "reference `bot_state.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\cs2-sales-reconciler\\SKILL.md",
+      "line": 14
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cs2-sales-reconciler",
+      "message": "reference `data/manual_row_removals.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\cs2-sales-reconciler\\SKILL.md",
+      "line": 14
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cs2-sales-reconciler",
+      "message": "reference `data/manual_price_updates.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\cs2-sales-reconciler\\SKILL.md",
+      "line": 15
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cs2-sales-reconciler",
+      "message": "reference `data/manual_sales.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\cs2-sales-reconciler\\SKILL.md",
+      "line": 15
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cs2-sales-reconciler",
+      "message": "reference `data/manual_reversals.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\cs2-sales-reconciler\\SKILL.md",
+      "line": 15
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cs2-sales-reconciler",
+      "message": "reference `TRADE_REVERSALS.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\cs2-sales-reconciler\\SKILL.md",
+      "line": 16
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cs2-sales-reconciler",
+      "message": "reference `data/marketplace_fees.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\cs2-sales-reconciler\\SKILL.md",
+      "line": 23
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cs2-sales-reconciler",
+      "message": "reference `data/config.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\cs2-sales-reconciler\\SKILL.md",
+      "line": 38
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cs2-sales-reconciler",
+      "message": "reference `data/listing_ledger.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\cs2-sales-reconciler\\SKILL.md",
+      "line": 38
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cs2-sales-reconciler",
+      "message": "reference `data/asset_archive.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\cs2-sales-reconciler\\SKILL.md",
+      "line": 38
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cs2-sales-reconciler",
+      "message": "reference `data/removed_config_items.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\cs2-sales-reconciler\\SKILL.md",
+      "line": 39
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cs2-sales-reconciler",
+      "message": "reference `listing_state.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\cs2-sales-reconciler\\SKILL.md",
+      "line": 47
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cs2-sales-reconciler",
+      "message": "reference `manual_sales.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\cs2-sales-reconciler\\SKILL.md",
+      "line": 55
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cs2-sales-reconciler",
+      "message": "reference `manual_reversals.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\cs2-sales-reconciler\\SKILL.md",
+      "line": 58
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cs2-sales-reconciler",
+      "message": "reference `data/shared/portfolio_summary.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\cs2-sales-reconciler\\SKILL.md",
+      "line": 73
+    },
+    {
+      "rule": "S006",
+      "severity": "warn",
+      "skill": "csfloat-image-auto-lister",
+      "message": "~7350 tokens / 220 body lines (spec guidance: <=5000 tokens, <=500 lines)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\csfloat-image-auto-lister\\SKILL.md",
+      "line": 0
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "csfloat-image-auto-lister",
+      "message": "reference `README.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\csfloat-image-auto-lister\\SKILL.md",
+      "line": 43
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "csfloat-image-auto-lister",
+      "message": "reference `DEV_LOG.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\csfloat-image-auto-lister\\SKILL.md",
+      "line": 43
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "csfloat-image-auto-lister",
+      "message": "reference `PORTFOLIO_OPERATIONS.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\csfloat-image-auto-lister\\SKILL.md",
+      "line": 43
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "csfloat-image-auto-lister",
+      "message": "reference `data/config.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\csfloat-image-auto-lister\\SKILL.md",
+      "line": 49
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "csfloat-image-auto-lister",
+      "message": "reference `data/accounts/rukia/config.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\csfloat-image-auto-lister\\SKILL.md",
+      "line": 49
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "csfloat-image-auto-lister",
+      "message": "reference `src/auto_lister/print_inventory_assets.py` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\csfloat-image-auto-lister\\SKILL.md",
+      "line": 72
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "csfloat-image-auto-lister",
+      "message": "reference `src/csmarket_auto_buyer/legacy_souvenir.py` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\csfloat-image-auto-lister\\SKILL.md",
+      "line": 94
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "csfloat-image-auto-lister",
+      "message": "reference `src/csmarket_auto_buyer/tournament_souvenir.py` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\csfloat-image-auto-lister\\SKILL.md",
+      "line": 96
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "csfloat-image-auto-lister",
+      "message": "reference `src/csmarket_auto_buyer/listing_parser.py` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\csfloat-image-auto-lister\\SKILL.md",
+      "line": 96
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "csfloat-image-auto-lister",
+      "message": "reference `listing_model.py` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\csfloat-image-auto-lister\\SKILL.md",
+      "line": 96
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "csfloat-image-auto-lister",
+      "message": "reference `config/legacy_souvenir_integrity.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\csfloat-image-auto-lister\\SKILL.md",
+      "line": 98
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "csfloat-image-auto-lister",
+      "message": "reference `config/tournament_signature_catalog.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\csfloat-image-auto-lister\\SKILL.md",
+      "line": 98
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "csfloat-image-auto-lister",
+      "message": "reference `tests/test_tournament_souvenir_policy.py` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\csfloat-image-auto-lister\\SKILL.md",
+      "line": 100
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "csfloat-image-auto-lister",
+      "message": "reference `bot.py` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\csfloat-image-auto-lister\\SKILL.md",
+      "line": 169
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "csfloat-image-auto-lister",
+      "message": "reference `data/manual_sales.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\csfloat-image-auto-lister\\SKILL.md",
+      "line": 190
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "me-refresh",
+      "message": "reference `ME_UPDATE_PROTOCOL.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\me-refresh\\SKILL.md",
+      "line": 3
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "me-refresh",
+      "message": "reference `docs/UPDATER.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\me-refresh\\SKILL.md",
+      "line": 3
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "me-refresh",
+      "message": "reference `proposal-id.txt` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\me-refresh\\SKILL.md",
+      "line": 8
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "me-refresh",
+      "message": "reference `snapshot.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\me-refresh\\SKILL.md",
+      "line": 38
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "me-refresh",
+      "message": "reference `review.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\me-refresh\\SKILL.md",
+      "line": 38
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "me-refresh",
+      "message": "reference `proposal.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\me-refresh\\SKILL.md",
+      "line": 38
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "me-refresh",
+      "message": "reference `bundle.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\me-refresh\\SKILL.md",
+      "line": 44
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "privacy-surface-audit",
+      "message": "reference `.sops.yaml` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\privacy-surface-audit\\SKILL.md",
+      "line": 17
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "professor-research-brief",
+      "message": "reference `Alexander_Kroitor_Deep_Academic_Brief.pdf` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\professor-research-brief\\SKILL.md",
+      "line": 251
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "skill-surgeon",
+      "message": "reference `surgery-plan.json` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\skill-surgeon\\SKILL.md",
+      "line": 15
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "skill-surgeon",
+      "message": "reference `surgery-log.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\skill-surgeon\\SKILL.md",
+      "line": 27
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "yeahwedid-import",
+      "message": "reference `config.js` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\yeahwedid-import\\SKILL.md",
+      "line": 27
+    },
+    {
+      "rule": "S006",
+      "severity": "warn",
+      "skill": "cloud-supervisor-migration",
+      "message": "~6525 tokens / 493 body lines (spec guidance: <=5000 tokens, <=500 lines)",
+      "file": "C:\\Users\\ericy\\Downloads\\.agents\\skills\\cloud-supervisor-migration\\SKILL.md",
+      "line": 0
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cloud-supervisor-migration",
+      "message": "reference `README.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\Downloads\\.agents\\skills\\cloud-supervisor-migration\\SKILL.md",
+      "line": 42
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cloud-supervisor-migration",
+      "message": "reference `config.yaml` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\Downloads\\.agents\\skills\\cloud-supervisor-migration\\SKILL.md",
+      "line": 42
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cloud-supervisor-migration",
+      "message": "reference `config.local.yaml` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\Downloads\\.agents\\skills\\cloud-supervisor-migration\\SKILL.md",
+      "line": 43
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cloud-supervisor-migration",
+      "message": "reference `project_controls.yaml` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\Downloads\\.agents\\skills\\cloud-supervisor-migration\\SKILL.md",
+      "line": 44
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cloud-supervisor-migration",
+      "message": "reference `docs/ARCHITECTURE.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\Downloads\\.agents\\skills\\cloud-supervisor-migration\\SKILL.md",
+      "line": 44
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cloud-supervisor-migration",
+      "message": "reference `docs/DESIGN_RATIONALE.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\Downloads\\.agents\\skills\\cloud-supervisor-migration\\SKILL.md",
+      "line": 44
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cloud-supervisor-migration",
+      "message": "reference `docs/MIGRATION_MAP.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\Downloads\\.agents\\skills\\cloud-supervisor-migration\\SKILL.md",
+      "line": 44
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cloud-supervisor-migration",
+      "message": "reference `docs/REPOSITORY_UPDATES.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\Downloads\\.agents\\skills\\cloud-supervisor-migration\\SKILL.md",
+      "line": 44
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cloud-supervisor-migration",
+      "message": "reference `docs/BOT_INTEGRATION_CONTRACT.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\Downloads\\.agents\\skills\\cloud-supervisor-migration\\SKILL.md",
+      "line": 44
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cloud-supervisor-migration",
+      "message": "reference `docs/SAFETY_INVARIANTS.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\Downloads\\.agents\\skills\\cloud-supervisor-migration\\SKILL.md",
+      "line": 46
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cloud-supervisor-migration",
+      "message": "reference `docs/REMOTE_GATEWAY_ARCHITECTURE.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\Downloads\\.agents\\skills\\cloud-supervisor-migration\\SKILL.md",
+      "line": 48
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cloud-supervisor-migration",
+      "message": "reference `SUPERVISOR_CLOUD_MIGRATION_AUDIT.md` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\Downloads\\.agents\\skills\\cloud-supervisor-migration\\SKILL.md",
+      "line": 50
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cloud-supervisor-migration",
+      "message": "reference `docs/integration_contracts/` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\Downloads\\.agents\\skills\\cloud-supervisor-migration\\SKILL.md",
+      "line": 51
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "cloud-supervisor-migration",
+      "message": "reference `single_instance.py` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\Downloads\\.agents\\skills\\cloud-supervisor-migration\\SKILL.md",
+      "line": 435
+    },
+    {
+      "rule": "S007",
+      "severity": "warn",
+      "skill": "professor-research-brief",
+      "message": "reference `Alexander_Kroitor_Deep_Academic_Brief.pdf` not found in skill dir (verify it resolves at runtime)",
+      "file": "C:\\Users\\ericy\\Downloads\\.agents\\skills\\professor-research-brief\\SKILL.md",
+      "line": 251
+    },
+    {
+      "rule": "S009",
+      "severity": "error",
+      "skill": "pro-ats",
+      "message": "duplicate name also defined at: C:\\Users\\ericy\\.agents\\skills\\pro-ats\\SKILL.md; C:\\Users\\ericy\\Downloads\\.agents\\skills\\pro-ats\\SKILL.md",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\pro-ats\\SKILL.md",
+      "line": 0
+    },
+    {
+      "rule": "S009",
+      "severity": "error",
+      "skill": "pro-ats",
+      "message": "duplicate name also defined at: C:\\Users\\ericy\\.agents\\skills\\pro-ats\\SKILL.md; C:\\Users\\ericy\\Downloads\\.agents\\skills\\pro-ats\\SKILL.md",
+      "file": "C:\\Users\\ericy\\Downloads\\.agents\\skills\\pro-ats\\SKILL.md",
+      "line": 0
+    },
+    {
+      "rule": "S009",
+      "severity": "error",
+      "skill": "professor-research-brief",
+      "message": "duplicate name also defined at: C:\\Users\\ericy\\.agents\\skills\\professor-research-brief\\SKILL.md; C:\\Users\\ericy\\Downloads\\.agents\\skills\\professor-research-brief\\SKILL.md",
+      "file": "C:\\Users\\ericy\\.agents\\skills\\professor-research-brief\\SKILL.md",
+      "line": 0
+    },
+    {
+      "rule": "S009",
+      "severity": "error",
+      "skill": "professor-research-brief",
+      "message": "duplicate name also defined at: C:\\Users\\ericy\\.agents\\skills\\professor-research-brief\\SKILL.md; C:\\Users\\ericy\\Downloads\\.agents\\skills\\professor-research-brief\\SKILL.md",
+      "file": "C:\\Users\\ericy\\Downloads\\.agents\\skills\\professor-research-brief\\SKILL.md",
+      "line": 0
+    }
+  ]
+}
