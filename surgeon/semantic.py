@@ -1,7 +1,7 @@
 """Open-weight semantic analysis via a local Ollama model.
 
 Everything here degrades gracefully: no server, missing model, or bad JSON
-just means the semantic checks are skipped — never a crash, never a cloud call.
+just means the semantic checks are skipped - never a crash, never a cloud call.
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ _ANALYZE_PROMPT = """You are auditing an agent-skill library. Each skill below h
 SKILLS:
 {listing}
 
-TASK — return ONE JSON object, no prose:
+TASK - return ONE JSON object, no prose:
 {{
   "collisions": [
     {{"a": <index>, "b": <index>, "reason": "<why they would compete for the same request>",
@@ -91,7 +91,7 @@ TASK — return ONE JSON object, no prose:
 
 Rules:
 - Refer to skills ONLY by their index number, never by name.
-- Two entries with the same name are a known duplicate issue — do NOT report them as a collision.
+- Two entries with the same name are a known duplicate issue - do NOT report them as a collision.
 - Only list collisions between DIFFERENTLY-named skills you are at least medium-confidence about; omit the key if none.
 - Only include a description entry if quality < 7 or it is missing a clear WHAT or WHEN; omit the key if none.
 - A good description names the domain, the action, and the trigger conditions (e.g. "Use when...", "Use for...").

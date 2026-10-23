@@ -41,7 +41,7 @@ FILEISH_EXT = {
 DIR_PREFIXES = ("scripts/", "references/", "assets/", "examples/", "templates/",
                 "resources/", "docs/", "files/", "./", "tools/", "prompts/")
 
-# Refs under these prefixes are bundled resources — they MUST exist in the
+# Refs under these prefixes are bundled resources - they MUST exist in the
 # skill dir. Everything else may be a runtime artifact in another repo.
 BUNDLED_PREFIXES = ("scripts/", "references/", "assets/", "examples/",
                     "templates/", "resources/", "./")
@@ -90,7 +90,7 @@ def _candidate_refs(skill: Skill) -> list[tuple[str, int]]:
         if not ref or ref in seen:
             return
         low = ref.lower()
-        if re.match(r"^[A-Za-z]:/", ref):  # absolute path — S008's job
+        if re.match(r"^[A-Za-z]:/", ref):  # absolute path - S008's job
             return
         if ("://" in ref or low.startswith(("mailto:", "#", "/", "~", "$", "<", "http"))):
             return
@@ -136,7 +136,7 @@ def check_skill(skill: Skill) -> list[Finding]:
         desc = skill.description
         if not desc:
             f.append(Finding("S004", "error", slug, fp,
-                             "missing `description` — router cannot trigger this skill",
+                             "missing `description` - router cannot trigger this skill",
                              fixable=True))
         elif len(desc) > 1024:
             f.append(Finding("S005", "warn", slug, fp,
@@ -152,21 +152,21 @@ def check_skill(skill: Skill) -> list[Finding]:
                          "(spec guidance: <=5000 tokens, <=500 lines)"))
 
     # Skills may declare runtime workspaces (metadata.workspace, string or
-    # list) where refs resolve — operational skills legitimately point at
+    # list) where refs resolve - operational skills legitimately point at
     # files in the repo(s) they manage, not files bundled with them.
     ws_raw = skill.meta.get("workspace") or (skill.meta.get("metadata") or {}).get("workspace")
     workspaces = [Path(str(w)).expanduser() for w in
                   (ws_raw if isinstance(ws_raw, list) else [ws_raw]) if ws_raw]
 
     # Files the skill GENERATES at runtime (outputs, bundles, state) are not
-    # dead references — declare via metadata.generates.
+    # dead references - declare via metadata.generates.
     gen_raw = skill.meta.get("generates") or (skill.meta.get("metadata") or {}).get("generates") or []
     generated = {str(g) for g in (gen_raw if isinstance(gen_raw, list) else [gen_raw])}
 
     def _ref_ok(ref: str) -> bool:
         if ref in generated or Path(ref).name in generated:
             return True
-        # resolve against the skill dir, then ancestor dirs up to the root —
+        # resolve against the skill dir, then ancestor dirs up to the root -
         # variant skills legitimately share the parent's bundled resources
         d = skill.dir
         while True:
@@ -230,7 +230,7 @@ def check_skill(skill: Skill) -> list[Finding]:
 
 def check_cross(skills: list[Skill]) -> list[Finding]:
     """Duplicate names across roots. Identical copies are deploy artifacts
-    (info); divergent copies are real drift — two versions of truth (error)."""
+    (info); divergent copies are real drift - two versions of truth (error)."""
     import hashlib
     f: list[Finding] = []
     by_name: dict[str, list[Skill]] = {}
@@ -257,7 +257,7 @@ def check_cross(skills: list[Skill]) -> list[Finding]:
         else:
             for g in group:
                 f.append(Finding("S009", "error", name, g.path,
-                                 f"DIVERGENT copies of `{name}` — versions differ; "
+                                 f"DIVERGENT copies of `{name}` - versions differ; "
                                  f"locations: {locs}", fixable=True))
     return f
 

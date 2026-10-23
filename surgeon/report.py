@@ -26,10 +26,10 @@ def render_terminal(report: Report, roots: list[Path]) -> str:
     counts = report.counts()
     score = report.score()
     out.append("")
-    out.append(c("SKILL SURGEON — health report", "bold"))
+    out.append(c("SKILL SURGEON - health report", "bold"))
     for r in roots:
         out.append(c(f"  root: {r}", "dim"))
-    sem = "on (local model)" if report.semantic_ok else f"off — {report.semantic_note}"
+    sem = "on (local model)" if report.semantic_ok else f"off - {report.semantic_note}"
     out.append(c(f"  scanned {len(report.skills)} skills · semantic pass: {sem}", "dim"))
     out.append("")
     out.append(f"  score {c(str(score) + '/100 ' + grade(score), 'bold')}   "
@@ -48,7 +48,7 @@ def render_terminal(report: Report, roots: list[Path]) -> str:
                    f"{f.message}{fixable}  {c(loc + line, 'dim')}")
 
     if not report.findings:
-        out.append(c("  no findings — library is clean", "ok"))
+        out.append(c("  no findings - library is clean", "ok"))
     out.append("")
     return "\n".join(out)
 
@@ -60,13 +60,13 @@ def _md_escape(s: str) -> str:
 def render_markdown(report: Report, roots: list[Path]) -> str:
     counts = report.counts()
     lines = [
-        "# Skill Surgeon — health report", "",
-        f"**Score: {report.score()}/100 ({grade(report.score())})** — "
+        "# Skill Surgeon - health report", "",
+        f"**Score: {report.score()}/100 ({grade(report.score())})** - "
         f"{counts['error']} errors · {counts['warn']} warnings · {counts['info']} suggestions",
         "",
         f"Scanned **{len(report.skills)}** skills across {len(roots)} root(s). "
         f"Semantic pass (open-weight local model): "
-        f"{'enabled' if report.semantic_ok else 'disabled — ' + report.semantic_note}.",
+        f"{'enabled' if report.semantic_ok else 'disabled - ' + report.semantic_note}.",
         "",
         "| Severity | Rule | Skill | Finding | Location |",
         "|---|---|---|---|---|",
@@ -88,8 +88,8 @@ def render_plan_md(fixes) -> str:
     lines = ["# Surgery plan", ""]
     for fx in fixes:
         auto = "" if fx.auto else " _(manual review)_"
-        lines.append(f"## {fx.id} — {fx.skill} ({fx.rule}){auto}")
-        lines.append(f"**{fx.kind}** — {fx.rationale}")
+        lines.append(f"## {fx.id} - {fx.skill} ({fx.rule}){auto}")
+        lines.append(f"**{fx.kind}** - {fx.rationale}")
         if fx.kind == "replace_text":
             lines += ["", "```diff"]
             for l in fx.find.split("\n"):

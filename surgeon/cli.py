@@ -89,8 +89,8 @@ def _apply_list(fixes: list[Fix], log_lines: list[str]) -> tuple[int, int]:
         fx.status = "applied" if ok else "failed"
         applied += ok
         failed += not ok
-        log_lines.append(f"- {fx.id} **{fx.skill}** ({fx.rule}) — "
-                         f"{'applied' if ok else 'FAILED: ' + msg} — {fx.rationale}")
+        log_lines.append(f"- {fx.id} **{fx.skill}** ({fx.rule}) - "
+                         f"{'applied' if ok else 'FAILED: ' + msg} - {fx.rationale}")
     return applied, failed
 
 
@@ -108,11 +108,11 @@ def cmd_fix(args) -> int:
 
     auto = [f for f in fixes if f.auto and f.kind == "replace_text"]
     manual = [f for f in fixes if f not in auto]
-    log = [f"# Surgery log — {datetime.now().isoformat(timespec='seconds')}", ""]
+    log = [f"# Surgery log - {datetime.now().isoformat(timespec='seconds')}", ""]
     applied = 0
 
     for fx in auto:
-        print(f"\n{fx.id} · {fx.skill} · {fx.rule} — {fx.rationale}")
+        print(f"\n{fx.id} · {fx.skill} · {fx.rule} - {fx.rationale}")
         for l in fx.find.split("\n"):
             print(c("  - " + l, "error"))
         for l in fx.replace.split("\n"):
@@ -133,13 +133,13 @@ def cmd_fix(args) -> int:
             print(c("    applied", "ok"))
         else:
             fx.status = "skipped"
-            log.append(f"- {fx.id} **{fx.skill}** ({fx.rule}) — skipped")
+            log.append(f"- {fx.id} **{fx.skill}** ({fx.rule}) - skipped")
 
     if manual:
         print(f"\n{len(manual)} findings need manual review (written to plan file):")
         for fx in manual:
             print(f"  - {fx.id} {fx.skill}: {fx.rationale[:140]}")
-            log.append(f"- {fx.id} **{fx.skill}** ({fx.rule}) — manual: {fx.rationale}")
+            log.append(f"- {fx.id} **{fx.skill}** ({fx.rule}) - manual: {fx.rationale}")
 
     Path("surgery-log.md").write_text("\n".join(log) + "\n", encoding="utf-8")
     print(c(f"\n{applied} fix(es) applied · surgery-log.md written", "bold"))
@@ -166,10 +166,10 @@ def cmd_apply(args) -> int:
     chosen = [f for f in fixes
               if (args.all or f.id in ids) and f.kind == "replace_text" and f.auto]
     skipped = [f for f in fixes if f not in chosen]
-    log = [f"# Surgery log — {datetime.now().isoformat(timespec='seconds')}", ""]
+    log = [f"# Surgery log - {datetime.now().isoformat(timespec='seconds')}", ""]
     applied, failed = _apply_list(chosen, log)
     for f in skipped:
-        log.append(f"- {f.id} **{f.skill}** ({f.rule}) — skipped")
+        log.append(f"- {f.id} **{f.skill}** ({f.rule}) - skipped")
     Path("surgery-log.md").write_text("\n".join(log) + "\n", encoding="utf-8")
     print(f"{applied} applied, {failed} failed, {len(skipped)} skipped → surgery-log.md")
     return 0 if failed == 0 else 1

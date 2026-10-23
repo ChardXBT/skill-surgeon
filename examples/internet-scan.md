@@ -1,8 +1,8 @@
-# Skill Surgeon — health report
+# Skill Surgeon - health report
 
-**Score: 95/100 (A)** — 494 errors · 910 warnings · 0 suggestions
+**Score: 95/100 (A)** - 494 errors · 910 warnings · 0 suggestions
 
-Scanned **1339** skills across 1 root(s). Semantic pass (open-weight local model): disabled — .
+Scanned **1339** skills across 1 root(s). Semantic pass (open-weight local model): disabled - .
 
 | Severity | Rule | Skill | Finding | Location |
 |---|---|---|---|---|

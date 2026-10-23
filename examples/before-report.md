@@ -1,6 +1,6 @@
-# Skill Surgeon — health report
+# Skill Surgeon - health report
 
-**Score: 85/100 (B)** — 4 errors · 67 warnings · 1 suggestions
+**Score: 85/100 (B)** - 4 errors · 67 warnings · 1 suggestions
 
 Scanned **18** skills across 2 root(s). Semantic pass (open-weight local model): enabled.
 

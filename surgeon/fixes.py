@@ -1,7 +1,7 @@
 """Turn findings + semantic results into concrete, reviewable Fix objects.
 
 Every replace_text fix carries the exact `find`/`replace` strings so applying
-it is mechanical and the operator reviews a precise diff — never a vague idea.
+it is mechanical and the operator reviews a precise diff - never a vague idea.
 """
 
 from __future__ import annotations
@@ -97,7 +97,7 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
             if drafted:
                 fix = _insert_frontmatter_field_fix(
                     s, "S004", "description", drafted,
-                    "drafted by local model from skill body — review before applying")
+                    "drafted by local model from skill body - review before applying")
                 if fix:
                     fixes.append(fix)
 
@@ -160,7 +160,7 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
                 fixes.append(Fix(
                     id=_id(), skill=s.slug, rule="S010", kind="replace_text",
                     file=str(s.path), find=literal, replace="<redacted>",
-                    rationale="redact credential literal — rotate it if real"))
+                    rationale="redact credential literal - rotate it if real"))
 
         elif f.rule == "S012":  # dated name
             if s.name:

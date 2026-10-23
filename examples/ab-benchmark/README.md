@@ -1,4 +1,4 @@
-# A/B Benchmark — does the repaired skill actually perform better?
+# A/B Benchmark - does the repaired skill actually perform better?
 
 Controlled test: two identical agent sessions, one with the upstream skill,
 one with the skill-surgeon repair. Same model, same prompt, same task.
@@ -15,7 +15,7 @@ UX rules; emits a complete recommended design system for a product brief.
 | Defect | Effect on the agent |
 |---|---|
 | 10 commands hardcoded to `.claude/skills/ui-ux-pro-max/scripts/search.py` | Every documented command fails when the skill is installed anywhere else (`.agents/skills`, `.devin/skills`, custom root) |
-| `ui-reasoning.csv` referenced bare — file lives at `data/ui-reasoning.csv` | Agent reads the wrong path; reasoning-rules file appears missing |
+| `ui-reasoning.csv` referenced bare - file lives at `data/ui-reasoning.csv` | Agent reads the wrong path; reasoning-rules file appears missing |
 | `scripts/search.py` crashes on non-UTF-8 consoles (Windows cp1252) printing `⚡`/`✓` glyphs | `UnicodeEncodeError` mid-task on the world's most common dev OS |
 
 Three defects, all invisible until the agent actually *runs* the skill.
@@ -29,18 +29,18 @@ Three defects, all invisible until the agent actually *runs* the skill.
 
 ## Protocol
 
-**Chat A — control.** Install the *unmodified* upstream skill:
+**Chat A - control.** Install the *unmodified* upstream skill:
 
 ```
 cp -r internet-skills/skills/ui-ux-pro-max  <workspace>/.agents/skills/ui-ux-pro-max
 ```
 
-**Chat B — treatment.** Install the repaired skill the same way (the repo copy
-already has the patch applied — `ui-ux-pro-max-fixed/`).
+**Chat B - treatment.** Install the repaired skill the same way (the repo copy
+already has the patch applied - `ui-ux-pro-max-fixed/`).
 
-**Identical prompt for both chats** (do not name the skill — let it trigger):
+**Identical prompt for both chats** (do not name the skill - let it trigger):
 
-> Build a landing page for a luxury day spa called "Serenity Spa" — a calm,
+> Build a landing page for a luxury day spa called "Serenity Spa" - a calm,
 > premium wellness brand. Include a hero, services grid, pricing section, and
 > a booking CTA. Then open it in a browser preview.
 
@@ -67,11 +67,11 @@ $ python scripts/search.py ...            # agent finds the script itself
 ```
 
 Agent gave up and improvised. In B the same console ran the same script
-cleanly and returned a full design system — and the page was built
+cleanly and returned a full design system - and the page was built
 **strictly from its output** (Soft UI Evolution, `#10B981`/`#8B5CF6`/`#ECFDF5`,
 Lora + Raleway, anti-patterns honored).
 
-| A — broken skill (`A-broken.png`) | B — repaired (`B-fixed.png`) |
+| A - broken skill (`A-broken.png`) | B - repaired (`B-fixed.png`) |
 |---|---|
 | generic purple-gradient hero | curated pastel system (mint/cream/gold) |
 | emoji icons | stroke SVGs, consistent weight |
@@ -84,6 +84,6 @@ Lora + Raleway, anti-patterns honored).
 ```bash
 python -m surgeon scan internet-skills/skills/ui-ux-pro-max
 # S007 warning: ui-reasoning.csv not found at referenced path
-# (the .claude/ path bug is caught by reading the skill — agents, not linters,
+# (the .claude/ path bug is caught by reading the skill - agents, not linters,
 #  follow command strings)
 ```
