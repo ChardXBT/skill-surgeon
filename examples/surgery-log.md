@@ -62,3 +62,18 @@ the real checkout. Effect: warnings 66→35 (verified refs stop counting), and
 refs that STILL miss escalate to errors — surfacing the 9 dead
 -era refs as real doc drift instead of noise.
 4 loose paths corrected ( →  etc.).
+
+## Round 2 — full-root scan (23 skills, 4 roots incl. ai-skills repo)
+
+- Workspace declarations: csfloat (3 workspaces: auto-lister + csmarket-auto-buyer x2),
+  cs2-sales-reconciler (2: auto-lister + buff-auto-lister), yeahwedid-import (yeahwedid),
+  me-refresh (~/Me), cloud-supervisor-migration (~/Downloads/bot-supervisor).
+- Repointed to verified paths: data/config.json, data/bot_state.json,
+  data/manual_sales.json, data/manual_reversals.json (cs2); listing_model.py and
+  listing_state.json full paths; bot_supervisor/single_instance.py.
+- The 9 "dead" csfloat refs mostly resolved — they point at the separate
+  csmarket-auto-buyer repo, not auto-lister. Not drift: cross-repo references.
+- Newly visible in ai-skills root: third copies of pro-ats / professor-research-brief,
+  second privacy-surface-audit, and the stale namewright-2026-06-22 repo copy.
+- Still open (operator decisions): duplicates policy, ai-skills repo rename,
+  me-refresh generated-artifact refs (outputs, not dead links), 2 oversized skills.

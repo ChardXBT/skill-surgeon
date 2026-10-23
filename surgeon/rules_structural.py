@@ -151,16 +151,17 @@ def check_skill(skill: Skill) -> list[Finding]:
                          f"~{skill.est_tokens} tokens / {skill.body_lines} body lines "
                          "(spec guidance: <=5000 tokens, <=500 lines)"))
 
-    # Skills may declare a runtime workspace (metadata.workspace or
-    # workspace field) where refs resolve — operational skills legitimately
-    # point at files in the repo they manage, not files bundled with them.
+    # Skills may declare runtime workspaces (metadata.workspace, string or
+    # list) where refs resolve — operational skills legitimately point at
+    # files in the repo(s) they manage, not files bundled with them.
     ws_raw = skill.meta.get("workspace") or (skill.meta.get("metadata") or {}).get("workspace")
-    workspace = Path(str(ws_raw)).expanduser() if ws_raw else None
+    workspaces = [Path(str(w)).expanduser() for w in
+                  (ws_raw if isinstance(ws_raw, list) else [ws_raw]) if ws_raw]
 
     def _ref_ok(ref: str) -> bool:
         if (skill.dir / ref).exists():
             return True
-        return bool(workspace) and (workspace / ref).exists()
+        return any((w / ref).exists() for w in workspaces)
 
     for ref, line in _candidate_refs(skill):
         if _ref_ok(ref):
@@ -168,10 +169,10 @@ def check_skill(skill: Skill) -> list[Finding]:
         if ref.startswith(BUNDLED_PREFIXES) or ref.startswith("./"):
             f.append(Finding("S007", "error", slug, fp,
                              f"dead bundled reference `{ref}`", line=line, fixable=True))
-        elif workspace:
+        elif workspaces:
             f.append(Finding("S007", "error", slug, fp,
                              f"reference `{ref}` not found in skill dir or "
-                             f"declared workspace", line=line, fixable=True))
+                             f"declared workspace(s)", line=line, fixable=True))
         else:
             f.append(Finding("S007", "warn", slug, fp,
                              f"reference `{ref}` not found in skill dir "
