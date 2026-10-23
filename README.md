@@ -1,109 +1,70 @@
 # skill-surgeon
 
-[![30-second explainer](examples/video/poster.png)](examples/video/skill-surgeon-30s.mp4)
+**Your AI assistant's instruction files break silently. This finds and fixes them — with your approval on every change.**
 
-**Linters tell you your skills are broken. This one fixes them.**
+[▶ 30-second explainer video](https://github.com/ChardXBT/skill-surgeon/raw/main/examples/video/skill-surgeon-30s.mp4)
 
-Point it at a folder of `SKILL.md` files. It finds the problems — dead
-references, duplicate names, secrets, machine-locked paths, colliding
-triggers — proposes each repair as an exact diff, waits for your approval,
-applies it, then re-scans to prove the library got healthier.
+## What it does
 
-Semantic analysis runs on a **local open-weight model** via Ollama.
-Your skills describe your infrastructure — auditing them shouldn't mean
-sending them to a cloud API. (No Ollama? Deterministic checks still run.)
+AI coding assistants follow small instruction files called *skills*. Over
+time they rot: they point at files that no longer exist, pile up
+duplicates, or hide credentials in plain text. Nothing warns you — the
+assistant just quietly does the wrong thing.
 
-```bash
-python -m surgeon scan ~/.agents/skills    # health report + surgery-plan.json
-python -m surgeon fix  ~/.agents/skills    # approve each diff, apply, re-verify
-```
+Skill Surgeon scans your skill library, shows you exactly what's broken,
+and proposes each repair as a visible before/after change. **Nothing gets
+edited until you approve it.** Then it re-checks itself and logs the work.
 
-Zero dependencies. Python 3.9+ stdlib only.
+## Proof it works
 
-## The loop
+We scanned the largest public skill collection — **1,340 real skills —
+and found 495 with errors**, including files that were referenced but never
+published at all.
 
-```
-scan ──► review diffs ──► approve ──► apply ──► re-scan
-           (nothing edits                              (score delta
-            without a yes)                              proves it worked)
-```
-
-Every proposed fix is an exact `find`/`replace` string in `surgery-plan.json`
-— reviewable, skippable, idempotent. Decisions land in `surgery-log.md`.
-
-## What it checks
-
-**Deterministic — 12 rules bound to the agentskills.io spec**
-
-- frontmatter validity · name/description rules · name↔dir mismatch
-- oversized skills (context bloat) · dead bundled references
-- hardcoded `C:\Users\…` paths · secrets · prompt-injection patterns
-- duplicate names (identical deploy copies → info, divergent → error)
-- date-stamped names like `foo-2026-06-22`
-
-**Local-model — 2 semantic rules**
-
-- **trigger collisions** — differently-named skills competing for the same
-  requests, each with a suggested sharper description
-- **description quality** — scored 0–10 with a proposed rewrite
-
-It also understands real libraries: `metadata.workspace` declares where
-cross-repo references live, `metadata.generates` lists files a skill
-produces at runtime, and same-name agent *variants* under a shared
-`variants/` dir are recognized as intentional.
-
-## It's a skill, too
-
-Drop the repo into `.agents/skills/` (or `.claude/skills/`). The bundled
-`SKILL.md` teaches any agent the audit → approve → apply → verify loop, so
-your agent can maintain its own library. Meta, on purpose.
-
-## Proof
-
-We ran it on three real libraries — artifacts in `examples/`:
-
-**The author's production library** — 45 skills, 4 roots, end-to-end with
-the approval gate on: found duplicated deploy copies, a machine-locked
-OneDrive path, a dated skill name, and 9 references to files deleted from a
-target repo. Score **84 → 93/100, 0 errors**.
-(`before-report.md` · `after-report.md` · `surgery-log.md`)
-
-**The internet's biggest skill collection** — 1,340 skills scanned:
-**495 errors** including skills shipping references to files that were never
-published. (`internet-scan` in `examples/`)
-
-**A controlled A/B test** — repaired a popular UI-design skill's 3 real
-defects (10 commands pointing at `.claude/`-only paths, a wrong-path data
-reference, a Windows console crash), then ran both variants agent-faithful.
-Original failed twice and improvised a generic gradient page; repaired
-skill's design-system engine drove a coherent page. Protocol, patch and
-screenshots in `examples/ab-benchmark/`:
+Then we picked one popular design skill (`ui-ux-pro-max`), fixed its three
+real defects, and ran the same task with the original vs the repaired
+version. The original failed twice — the agent gave up and made a generic
+page. The repaired skill's design engine ran and drove a coherent page:
 
 | Before — broken skill | After — repaired |
 |---|---|
 | ![before](examples/ab-benchmark/A-broken.png) | ![after](examples/ab-benchmark/B-fixed.png) |
 
-**The gate earned its keep.** On the first live run, the fuzzy matcher
-proposed 11 fixes — 3 were wrong and operator review refused them. Approval
-isn't decoration.
+We also ran it on the author's own 45-skill library: it caught duplicated
+skills, a path that only worked on one machine, and references to files
+deleted months ago — score 84 → 93, zero errors left. It even rejected 3
+of its own suggested fixes when human review caught fuzzy matches. The
+approval gate is real, not decoration.
 
-## Install & commands
+Full receipts in [`examples/`](examples/): audit reports, the surgery log,
+the repair patch, and the A/B test protocol.
+
+## How it works, in one paragraph
+
+It runs a set of plain-rule checks (missing files, duplicate names,
+leftover secrets, machine-specific paths) plus optional checks from an AI
+model that runs **on your own computer** — so your private skills never get
+sent to a cloud service. Proposed fixes are exact text replacements you can
+read before saying yes.
+
+## Technologies
+
+Python standard library only — no dependencies, no install. Optional local
+AI checks via [Ollama](https://ollama.com) with any open-weight model
+(tested on `gemma4:e4b`). Works on `.agents`, `.claude`, `.devin` and other
+skill directories. MIT licensed.
+
+## Try it
 
 ```bash
 git clone https://github.com/ChardXBT/skill-surgeon && cd skill-surgeon
-python -m surgeon scan examples/demo-skills   # try the broken fixtures
-python -m surgeon rules                        # all 14 rules
-python -m surgeon apply --plan surgery-plan.json --ids F-001,F-003
+python -m surgeon scan examples/demo-skills   # finds the planted bugs
+python -m surgeon scan <your-skills-folder>   # your real library
 ```
-
-Semantic pass: install [Ollama](https://ollama.com), pull any model,
-`--model` to override the `gemma4:e4b` default.
 
 ## Safety
 
-- Report-only by default — **no edit lands without approval**
-- Never deletes or moves a skill dir
-- Secret literals are redacted in fixes, never echoed in reports
-- Placeholder-aware: `your-api-key`, `${TOKEN}`, `YYYY-MM-DD` don't flag
-
-MIT · contributions welcome
+- Read-only until you approve a change — it never edits on its own
+- Never deletes or moves a skill
+- Secrets it finds are redacted, never printed
+- Works fully offline
