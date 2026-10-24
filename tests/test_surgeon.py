@@ -317,6 +317,37 @@ class TestEdgeCases(unittest.TestCase):
         self.assertIsNotNone(fm)
         self.assertIn("name: x", fm)
 
+    def test_lenient_parser_nested_shapes(self):
+        """Without PyYAML (CI path) nested maps/lists must still parse
+        as dicts/lists - a string here crashed scan in GitHub Actions."""
+        import surgeon.frontmatter as F
+        real = F.yaml
+        try:
+            F.yaml = None
+            meta, _ = F.parse_frontmatter(
+                "name: s\ndescription: d\nmetadata:\n"
+                "  workspace: C:/r\n  generates:\n    - a.json\n    - b.json\n"
+                "folded:\n  multi\n  line\n")
+        finally:
+            F.yaml = real
+        self.assertIsInstance(meta["metadata"], dict)
+        self.assertEqual(meta["metadata"]["generates"], ["a.json", "b.json"])
+        self.assertEqual(meta["metadata"]["workspace"], "C:/r")
+        self.assertEqual(meta["folded"], "multi line")
+
+    def test_scan_survives_lenient_parse(self):
+        """all_structural must not crash when metadata parses to scalars."""
+        import surgeon.frontmatter as F
+        from surgeon.rules_structural import all_structural
+        real = F.yaml
+        try:
+            F.yaml = None
+            skills, _ = discover([str(FIXTURES)])
+            findings = all_structural(skills)
+        finally:
+            F.yaml = real
+        self.assertTrue(findings)
+
     def test_signature_distinguishes_refs(self):
         from surgeon.baseline import _signature
         from surgeon.model import Finding

@@ -154,13 +154,16 @@ def check_skill(skill: Skill) -> list[Finding]:
     # Skills may declare runtime workspaces (metadata.workspace, string or
     # list) where refs resolve - operational skills legitimately point at
     # files in the repo(s) they manage, not files bundled with them.
-    ws_raw = skill.meta.get("workspace") or (skill.meta.get("metadata") or {}).get("workspace")
+    meta_map = skill.meta.get("metadata")
+    meta_map = meta_map if isinstance(meta_map, dict) else {}
+    ws_raw = skill.meta.get("workspace") or meta_map.get("workspace")
     workspaces = [Path(str(w)).expanduser() for w in
-                  (ws_raw if isinstance(ws_raw, list) else [ws_raw]) if ws_raw]
+                  (ws_raw if isinstance(ws_raw, list) else [ws_raw])
+                  if isinstance(w, (str, int, float)) and w]
 
     # Files the skill GENERATES at runtime (outputs, bundles, state) are not
     # dead references - declare via metadata.generates.
-    gen_raw = skill.meta.get("generates") or (skill.meta.get("metadata") or {}).get("generates") or []
+    gen_raw = skill.meta.get("generates") or meta_map.get("generates") or []
     generated = {str(g) for g in (gen_raw if isinstance(gen_raw, list) else [gen_raw])}
 
     def _ref_ok(ref: str) -> bool:

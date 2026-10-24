@@ -34,36 +34,70 @@ def split_frontmatter(text: str) -> tuple[str | None, str, int, int]:
 
 
 def _manual_parse(fm: str) -> dict:
+    """Lenient frontmatter parse: top-level scalars, block scalars (| >),
+    one level of nested maps/lists, and folded scalar continuations.
+
+    Used only when PyYAML is absent - must produce the same SHAPES yaml
+    would (nested dicts, lists) or downstream .get() calls see strings.
+    """
     meta: dict = {}
-    key = None
-    buf: list[str] = []
-
-    def flush():
-        nonlocal key, buf
-        if key is not None:
-            meta[key] = " ".join(x.strip() for x in buf).strip()
-        key, buf = None, []
-
-    for line in fm.splitlines():
-        if not line.strip():
+    lines = fm.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if not line.strip() or line[0] in " \t" or ":" not in line:
+            i += 1
             continue
-        if line[0] in " \t":  # continuation / folded block
-            buf.append(line)
-            continue
-        if ":" in line:
-            flush()
-            k, _, v = line.partition(":")
-            key = k.strip()
-            v = v.strip()
-            if v in ("|", ">", "|-", ">-", "|+", ">+"):
-                buf = []
-            elif v:
-                buf = [v]
-            else:
-                buf = []
+        k, _, v = line.partition(":")
+        key, v = k.strip(), v.strip()
+
+        if v in ("|", ">", "|-", ">-", "|+", ">+"):      # block scalar
+            i += 1
+            buf = []
+            while i < len(lines) and (lines[i][:1] in " \t" or not lines[i].strip()):
+                if lines[i].strip():
+                    buf.append(lines[i].strip())
+                i += 1
+            meta[key] = "\n".join(buf) if v.startswith("|") else " ".join(buf)
+        elif v:
+            meta[key] = v                                # plain scalar
+            i += 1
         else:
-            buf.append(line)
-    flush()
+            # empty value: nested block or folded continuation follows
+            i += 1
+            children: list[tuple[int, str]] = []
+            while i < len(lines) and (lines[i][:1] in " \t" or not lines[i].strip()):
+                if lines[i].strip():
+                    children.append((len(lines[i]) - len(lines[i].lstrip()),
+                                     lines[i].strip()))
+                i += 1
+            if not children:
+                meta[key] = ""
+                continue
+            ind0 = min(c[0] for c in children)
+            lvl0 = [s for ind, s in children if ind == ind0]
+            if all(s.startswith(("- ", "-\t")) for s in lvl0):
+                meta[key] = [s[2:].strip() for s in lvl0]
+            elif all(":" in s for s in lvl0):
+                m: dict = {}
+                cur = ""
+                for ind, s in children:
+                    if ind == ind0:
+                        kk, _, vv = s.partition(":")
+                        cur = kk.strip()
+                        m[cur] = vv.strip()
+                    elif cur and s.startswith(("- ", "-\t")):
+                        m[cur] = (m[cur] if isinstance(m.get(cur), list) else [])
+                        m[cur].append(s[2:].strip())
+                    elif cur and ":" in s:
+                        kk, _, vv = s.partition(":")
+                        m[cur] = (m[cur] if isinstance(m.get(cur), dict) else {})
+                        m[cur][kk.strip()] = vv.strip()
+                    elif cur and isinstance(m.get(cur), str):
+                        m[cur] = (m[cur] + " " + s).strip()
+                meta[key] = m
+            else:
+                meta[key] = " ".join(s for _, s in children)  # folded scalar
     return meta
 
 
