@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -106,10 +108,15 @@ def check_command(skill: Skill, line: int, cmd: str,
     if NEVER_RUN.search(cmd):
         return CmdResult(skill.slug, line, cmd, "unsafe_skipped",
                          "matches denylist; not executed")
+    # isolate: run against a temp copy of the skill dir so a rogue command
+    # can't write into (or read neighbors of) the real library
     try:
-        r = subprocess.run(cmd, shell=True, cwd=skill.dir,
-                           capture_output=True, text=True, timeout=20,
-                           env=_scrubbed_env())
+        with tempfile.TemporaryDirectory(prefix="surgeon-") as iso:
+            iso_dir = Path(iso) / skill.dir.name
+            shutil.copytree(skill.dir, iso_dir)
+            r = subprocess.run(cmd, shell=True, cwd=iso_dir,
+                               capture_output=True, text=True, timeout=20,
+                               env=_scrubbed_env())
     except subprocess.TimeoutExpired:
         return CmdResult(skill.slug, line, cmd, "timeout", ">20s")
     except Exception as e:

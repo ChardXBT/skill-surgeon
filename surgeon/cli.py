@@ -181,7 +181,8 @@ def cmd_apply(args) -> int:
     if args.ids:
         ids = {x.strip() for x in args.ids.split(",") if x.strip()}
     chosen = [f for f in fixes
-              if (args.all or f.id in ids) and f.kind == "replace_text" and f.auto]
+              if (args.all or f.id in ids) and f.kind == "replace_text" and f.auto
+              and (not args.safe_only or f.confidence == "safe")]
     skipped = [f for f in fixes if f not in chosen]
     log = [f"# Surgery log - {datetime.now().isoformat(timespec='seconds')}", ""]
     applied, failed = _apply_list(chosen, log)
@@ -207,14 +208,15 @@ def cmd_adopt(args) -> int:
         print("No SKILL.md files found.")
         return 3
     ws = str(Path(args.workspace).expanduser().resolve()) if args.workspace else None
-    ads = adopt_all(skills, ws, yes=args.yes)
+    ads = adopt_all(skills, ws, yes=args.yes, detect=args.detect)
     mode = "applied" if args.yes else "plan (pass --yes to write)"
     print(f"\n  ADOPT - declare workspace + verification stamp [{mode}]")
     print("")
     for ad in ads:
         if ad.updates:
             marks = ", ".join(f"{k}: {v}" for k, v in ad.updates.items())
-            print(f"  {c('+', 'ok')} {ad.skill.ljust(28)[:28]} {marks}")
+            det = c(" (detected)", "dim") if ad.detected else ""
+            print(f"  {c('+', 'ok')} {ad.skill.ljust(28)[:28]} {marks}{det}")
         else:
             print(f"  {c('=', 'dim')} {ad.skill.ljust(28)[:28]} already declared")
     if not args.yes:
@@ -366,6 +368,49 @@ def cmd_coverage(args) -> int:
     return 0
 
 
+def cmd_doctor(args) -> int:
+    """Check surgeon's own runtime: python, Ollama, embed model, PATH."""
+    import shutil
+    checks = []
+    v = sys.version_info
+    checks.append((f"python {v.major}.{v.minor}.{v.micro}", v >= (3, 9),
+                   "3.9+ required"))
+    env = detect()
+    py = env.python_cmd()
+    checks.append((f"python interpreter on PATH ({py or 'none'})",
+                   py is not None, "tailor/test need a working interpreter"))
+    try:
+        import yaml  # noqa
+        checks.append(("pyyaml", True, ""))
+    except Exception:
+        checks.append(("pyyaml", False, "optional - lenient parser covers most files"))
+    client = OllamaClient(model=args.model, host=args.host)
+    ok, note = client.available()
+    checks.append((f"ollama + {args.model}", ok, note if not ok else ""))
+    if ok:
+        try:
+            import urllib.request, json as _j
+            with urllib.request.urlopen(f"{args.host}/api/tags", timeout=4) as r:
+                names = [m.get("name", "") for m in _j.loads(r.read()).get("models", [])]
+            checks.append(("nomic-embed-text (semantic coverage)",
+                           any("nomic-embed" in n for n in names),
+                           "optional - coverage falls back to token overlap"))
+        except Exception:
+            pass
+    checks.append(("`surgeon` on PATH", shutil.which("surgeon") is not None,
+                   "optional - `python -m surgeon` always works"))
+    print(f"\n  DOCTOR - skill-surgeon {__version__} self-check")
+    print("")
+    bad = 0
+    for label, ok_, note in checks:
+        mark = c("OK  ", "ok") if ok_ else c("MISS", "warn")
+        if not ok_:
+            bad += 1
+        print(f"  {mark} {label}" + (f"  {c(note, 'dim')}" if note else ""))
+    print("")
+    return 0 if all(c[1] for c in checks[:2]) else 1
+
+
 def cmd_badge(args) -> int:
     """Print a README badge line with the library's score."""
     report, fixes, roots = run_scan(args.paths, args.model, args.host,
@@ -420,6 +465,8 @@ def main(argv=None) -> int:
     sp.add_argument("--plan", default="surgery-plan.json")
     sp.add_argument("--ids", default="", help="comma-separated fix ids")
     sp.add_argument("--all", action="store_true")
+    sp.add_argument("--safe-only", action="store_true",
+                    help="apply only deterministic fixes; hold review-flagged ones")
     sp.set_defaults(func=cmd_apply)
 
     sp = sub.add_parser("rules", help="list all rules")
@@ -455,6 +502,8 @@ def main(argv=None) -> int:
     sp.add_argument("paths", nargs="*", default=[])
     sp.add_argument("--workspace", default="",
                     help="repo path the skill monitors (repeatable skill-wide)")
+    sp.add_argument("--detect", action="store_true",
+                    help="guess each skill's workspace from its referenced files' git roots")
     sp.add_argument("--yes", action="store_true",
                     help="write the stamps (default: plan only)")
     sp.set_defaults(func=cmd_adopt)
@@ -465,6 +514,11 @@ def main(argv=None) -> int:
     sp.add_argument("--model", default=DEFAULT_MODEL)
     sp.add_argument("--host", default=DEFAULT_HOST)
     sp.set_defaults(func=cmd_diff)
+
+    sp = sub.add_parser("doctor", help="check surgeon's own runtime prerequisites")
+    sp.add_argument("--model", default=DEFAULT_MODEL)
+    sp.add_argument("--host", default=DEFAULT_HOST)
+    sp.set_defaults(func=cmd_doctor)
 
     args = p.parse_args(argv)
     return args.func(args)
