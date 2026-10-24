@@ -1,0 +1,12 @@
+# skill-surgeon audits itself: the repo's own SKILL.md must stay clean.
+name: skill-surgeon
+on: [push, pull_request]
+jobs:
+  self-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.x" }
+      - run: python -m surgeon scan . --no-semantic --ci --plan /tmp/plan.json
+      - run: python -m unittest discover -s tests
