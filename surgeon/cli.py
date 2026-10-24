@@ -95,7 +95,17 @@ def cmd_scan(args) -> int:
         save_baseline(Path(args.save_baseline), report)
         print(c(f"  baseline saved: {args.save_baseline} "
                 "(compare later with `surgeon diff`)", "dim"))
-    return 1 if any(f.severity == "error" for f in report.findings) else 0
+    has_errors = any(f.severity == "error" for f in report.findings)
+    if getattr(args, "adopt_on_clean", False):
+        if has_errors:
+            print(c("  adopt skipped - errors present; fix first, "
+                    "then adopt the clean scan", "dim"))
+        else:
+            n = sum(1 for ad in adopt_all(report.skills, None, yes=True)
+                    if ad.applied)
+            print(c(f"  adopt: stamped verified_at on {n} skills - "
+                    "`surgeon watch` now measures drift from today", "ok"))
+    return 1 if has_errors else 0
 
 
 def _apply_list(fixes: list[Fix], log_lines: list[str]) -> tuple[int, int]:
@@ -282,6 +292,13 @@ def cmd_test(args) -> int:
         print("No SKILL.md files found.")
         return 3
     rep = smoke_test(skills, env, run=args.run)
+    if getattr(args, "json", ""):
+        Path(args.json).write_text(json.dumps({
+            "run": bool(args.run), "counts": rep.counts(),
+            "results": [{"skill": r.skill, "line": r.line, "command": r.command,
+                         "status": r.status, "detail": r.detail}
+                        for r in rep.results],
+        }, indent=2), encoding="utf-8")
     mode = "live execution" if args.run else "static (pass --run to execute)"
     print(f"\n  SMOKE TEST - do the documented commands work? [{mode}]")
     print(c(f"  {env_describe(env)}", "dim"))
@@ -315,6 +332,13 @@ def cmd_watch(args) -> int:
         print("No SKILL.md files found.")
         return 3
     results = watch_all(skills)
+    if getattr(args, "json", ""):
+        Path(args.json).write_text(json.dumps({
+            "results": [{"skill": r.skill, "workspace": str(r.workspace),
+                         "status": r.status, "detail": r.detail,
+                         "changed_refs": r.changed_refs}
+                        for r in results],
+        }, indent=2), encoding="utf-8")
     print(f"\n  WATCH - workspace drift")
     if not results:
         print(c("  no skills declare metadata.workspace - nothing to watch", "dim"))
@@ -348,6 +372,14 @@ def cmd_coverage(args) -> int:
         if not ok:
             client = None
     rep = coverage(skills, client)
+    if getattr(args, "json", ""):
+        Path(args.json).write_text(json.dumps({
+            "skills": len(skills), "embed": rep.embed_note,
+            "no_trigger": rep.no_trigger,
+            "similar_pairs": [{"a": a, "b": b, "score": j}
+                              for a, b, j in rep.similar_pairs],
+            "uncovered": rep.uncovered,
+        }, indent=2), encoding="utf-8")
     print(f"\n  COVERAGE - routing map for {len(skills)} skills")
     print("")
     if rep.no_trigger:
@@ -456,6 +488,8 @@ def main(argv=None) -> int:
                     help="one-line output for CI; exit 1 if errors")
     sp.add_argument("--save-baseline", default="",
                     help="snapshot findings to FILE for `surgeon diff`")
+    sp.add_argument("--adopt-on-clean", action="store_true",
+                    help="stamp metadata.verified_at on every skill when the scan is clean")
     sp.set_defaults(func=cmd_scan)
 
     sp = sub.add_parser("fix", help="scan then interactively approve & apply fixes")
@@ -483,16 +517,19 @@ def main(argv=None) -> int:
     sp = sub.add_parser("test", help="smoke-test documented commands")
     sp.add_argument("paths", nargs="*", default=[])
     sp.add_argument("--run", action="store_true",
-                    help="actually execute commands (denylisted ones are skipped)")
+                    help="actually execute commands (denylisted ones are skipped, env scrubbed, temp-copy sandbox)")
+    sp.add_argument("--json", default="", help="write results to FILE")
     sp.set_defaults(func=cmd_test)
 
     sp = sub.add_parser("watch", help="flag skills whose workspaces changed since verification")
     sp.add_argument("paths", nargs="*", default=[])
+    sp.add_argument("--json", default="", help="write results to FILE")
     sp.set_defaults(func=cmd_watch)
 
     sp = sub.add_parser("coverage", help="routing/intent map of the library")
     sp.add_argument("paths", nargs="*", default=[])
     sp.add_argument("--no-semantic", action="store_true")
+    sp.add_argument("--json", default="", help="write results to FILE")
     sp.set_defaults(func=cmd_coverage)
 
     sp = sub.add_parser("badge", help="print a README badge with the library score")
