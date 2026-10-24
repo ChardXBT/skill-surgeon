@@ -29,14 +29,25 @@ class WatchResult:
     detail: str = ""
 
 
+def _meta_map(skill: Skill) -> dict:
+    m = skill.meta.get("metadata")
+    return m if isinstance(m, dict) else {}
+
+
 def _workspaces(skill: Skill) -> list[Path]:
-    raw = skill.meta.get("workspace") or (skill.meta.get("metadata") or {}).get("workspace")
+    raw = skill.meta.get("workspace") or _meta_map(skill).get("workspace")
     ws = raw if isinstance(raw, list) else ([raw] if raw else [])
-    return [Path(str(w)).expanduser() for w in ws]
+    out = []
+    for w in ws:
+        if not isinstance(w, (str, int, float)):
+            continue                       # malformed metadata, don't crash
+        p = Path(str(w)).expanduser()
+        out.append(p if p.is_absolute() else (skill.dir / p))
+    return out
 
 
 def _verified_at(skill: Skill) -> datetime:
-    raw = skill.meta.get("verified_at") or (skill.meta.get("metadata") or {}).get("verified_at")
+    raw = skill.meta.get("verified_at") or _meta_map(skill).get("verified_at")
     if raw:
         try:
             return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))

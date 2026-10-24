@@ -19,13 +19,14 @@ from .model import Finding, Report
 def _signature(f: Finding) -> str:
     """Stable identity for a finding across scans.
 
-    Line numbers and volatile path prefixes are stripped so cosmetic file
-    edits don't fake 'resolved'/'new' churn.
+    Line numbers shift with cosmetic edits, so they're masked - but the
+    referenced file/identifier IS the finding's identity and is kept, so
+    two different dead refs don't collapse into one signature.
     """
-    msg = re.sub(r"`[^`]+`", "`X`", f.message)          # mask file paths
-    msg = re.sub(r"\b\d+\b", "N", msg)                  # mask counts/numbers
-    msg = re.sub(r"line \d+", "line", msg)
-    return f"{f.rule}|{f.skill}|{msg[:80]}"
+    msg = re.sub(r"line \d+", "line", f.message)        # mask line numbers
+    msg = re.sub(r"[A-Za-z]:[\\/]\S+", "<abspath>", msg)  # mask abs prefixes
+    msg = re.sub(r"\s+", " ", msg).strip()
+    return f"{f.rule}|{f.skill}|{msg[:120]}"
 
 
 def save_baseline(path: Path, report: Report) -> None:

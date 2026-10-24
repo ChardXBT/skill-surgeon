@@ -173,6 +173,38 @@ class TestCoverage(unittest.TestCase):
 
 
 class TestWatch(unittest.TestCase):
+    def test_scalar_metadata_no_crash(self):
+        import tempfile
+        from surgeon.watch import watch_skill
+        from surgeon.model import Skill
+        from surgeon.frontmatter import split_frontmatter, parse_frontmatter
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td) / "s"; d.mkdir()
+            raw = "---\nname: s\ndescription: d\nmetadata: keep\n---\n"
+            p = d / "SKILL.md"; p.write_text(raw, encoding="utf-8")
+            fm, body, s, e = split_frontmatter(raw)
+            meta, _ = parse_frontmatter(fm)
+            skill = Skill(path=p, root=d.parent, raw=raw, meta=meta,
+                          fm_raw=fm or "", fm_start=s, fm_end=e, body=body)
+            res = watch_skill(skill)          # must not raise AttributeError
+            self.assertEqual(res, [])
+
+    def test_relative_workspace_resolves_from_skill_dir(self):
+        import tempfile
+        from surgeon.watch import _workspaces
+        from surgeon.model import Skill
+        from surgeon.frontmatter import split_frontmatter, parse_frontmatter
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td) / "s"; d.mkdir()
+            raw = "---\nname: s\ndescription: d\nmetadata:\n  workspace: ../repo\n---\n"
+            p = d / "SKILL.md"; p.write_text(raw, encoding="utf-8")
+            fm, body, s, e = split_frontmatter(raw)
+            meta, _ = parse_frontmatter(fm)
+            skill = Skill(path=p, root=d.parent, raw=raw, meta=meta,
+                          fm_raw=fm or "", fm_start=s, fm_end=e, body=body)
+            ws = _workspaces(skill)
+            self.assertEqual(ws[0], d / "../repo")
+
     def test_missing_workspace(self):
         import tempfile
         from surgeon.watch import watch_skill
@@ -247,6 +279,66 @@ class TestBaseline(unittest.TestCase):
             d = diff_baseline(bp, r2)
             self.assertEqual(len(d["resolved"]), 1)
             self.assertEqual(len(d["new"]), 0)
+
+
+class TestEdgeCases(unittest.TestCase):
+    def test_dotdot_refs_not_mangled(self):
+        from surgeon.smoke import _invoked_files
+        files = _invoked_files("python ../scripts/x.py")
+        self.assertEqual(files, ["../scripts/x.py"])
+
+    def test_upsert_metadata_flow_style(self):
+        from surgeon.frontmatter import upsert_metadata
+        fm = 'name: s\nmetadata: {workspace: C:/r}\n'
+        out = upsert_metadata(fm, "verified_at", "2026-10-24")
+        self.assertIn("workspace: C:/r", out)
+        self.assertIn("verified_at: 2026-10-24", out)
+        self.assertNotIn("{workspace", out)   # normalized to block
+
+    def test_upsert_replaces_list_children(self):
+        from surgeon.frontmatter import upsert_metadata
+        fm = 'metadata:\n  workspace:\n    - a\n    - b\n  keep: 1\n'
+        out = upsert_metadata(fm, "workspace", "C:/new")
+        self.assertIn("workspace: C:/new", out)
+        self.assertNotIn("- a", out)          # old list items swallowed
+        self.assertIn("keep: 1", out)
+
+    def test_crlf_preserved_on_rewrite(self):
+        from surgeon.frontmatter import rewrite_frontmatter
+        raw = "---\r\nname: s\r\ndescription: d\r\n---\r\nbody\r\n"
+        out = rewrite_frontmatter(raw, {"verified_at": "2026-10-24"})
+        self.assertIn("\r\n", out)
+        self.assertNotIn("\n", out.replace("\r\n", ""))   # no bare LF
+        self.assertIn("verified_at: 2026-10-24", out)
+
+    def test_bom_frontmatter_detected(self):
+        from surgeon.frontmatter import split_frontmatter
+        fm, body, s, e = split_frontmatter("\ufeff---\nname: x\n---\nbody")
+        self.assertIsNotNone(fm)
+        self.assertIn("name: x", fm)
+
+    def test_signature_distinguishes_refs(self):
+        from surgeon.baseline import _signature
+        from surgeon.model import Finding
+        from pathlib import Path
+        f1 = Finding("S007", "error", "s", Path("x"), "dead ref `a.md`")
+        f2 = Finding("S007", "error", "s", Path("x"), "dead ref `b.md`")
+        self.assertNotEqual(_signature(f1), _signature(f2))
+
+    def test_apply_fix_crlf_file(self):
+        import tempfile
+        from surgeon.model import Fix
+        from surgeon.report import apply_fix
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "SKILL.md"
+            p.write_bytes(b"---\r\nname: s\r\ndescription: old desc\r\n---\r\n")
+            fx = Fix(id="F-1", skill="s", rule="X", kind="replace_text",
+                     file=str(p), rationale="r",
+                     find="description: old desc", replace="description: new")
+            ok, _ = apply_fix(fx)
+            self.assertTrue(ok)
+            self.assertIn(b"new", p.read_bytes())
+            self.assertIn(b"\r\n", p.read_bytes())      # EOL preserved
 
 
 class TestConfidence(unittest.TestCase):

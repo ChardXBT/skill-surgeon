@@ -190,6 +190,10 @@ def cmd_apply(args) -> int:
     ids = set()
     if args.ids:
         ids = {x.strip() for x in args.ids.split(",") if x.strip()}
+    if not ids and not args.all:
+        print(f"no fixes selected - pass --ids F-001,F-002 or --all "
+              f"({len(fixes)} pending in {args.plan})")
+        return 3
     chosen = [f for f in fixes
               if (args.all or f.id in ids) and f.kind == "replace_text" and f.auto
               and (not args.safe_only or f.confidence == "safe")]
@@ -280,7 +284,7 @@ def cmd_tailor(args) -> int:
          "fixes": [f.to_dict() for f in fixes]}, indent=2), encoding="utf-8")
     if fixes:
         print(c(f"\n  {len(fixes)} rewrites proposed -> {plan} "
-                "(apply with `surgeon apply --ids ...`)", "dim"))
+                f"(apply with `surgeon apply --plan {plan} --ids ...`)", "dim"))
     return 1 if any(f.severity == "error" for f in findings) else 0
 
 

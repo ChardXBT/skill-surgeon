@@ -66,7 +66,7 @@ def _invoked_files(cmd: str) -> list[str]:
         if tok.startswith("-") or "://" in tok:
             continue
         if Path(tok).suffix.lower() in SCRIPT_EXT:
-            out.append(tok.lstrip("./"))
+            out.append(tok.removeprefix("./").removeprefix(".\\"))
     return out
 
 
@@ -86,7 +86,8 @@ def check_command(skill: Skill, line: int, cmd: str,
             return CmdResult(skill.slug, line, cmd, "missing_interp",
                              f"`{first}` not found on PATH")
 
-    missing = [f for f in _invoked_files(cmd) if not (skill.dir / f).exists()]
+    missing = [f for f in _invoked_files(cmd)
+               if not (skill.dir / f).resolve().exists()]
     if missing:
         return CmdResult(skill.slug, line, cmd, "missing_file",
                          f"not found: {', '.join(missing)}")

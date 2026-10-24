@@ -22,7 +22,7 @@ def split_frontmatter(text: str) -> tuple[str | None, str, int, int]:
     i = 0
     while i < len(lines) and lines[i].lstrip("\ufeff").strip() == "":
         i += 1
-    if i >= len(lines) or lines[i].strip() != "---":
+    if i >= len(lines) or lines[i].strip().lstrip("\ufeff") != "---":
         return None, text, -1, -1
     j = i + 1
     while j < len(lines):
@@ -81,12 +81,27 @@ def parse_frontmatter(fm: str) -> tuple[dict, str]:
     return _manual_parse(fm), ""
 
 
+def _flow_map_items(value: str) -> list[str] | None:
+    """`{a: 1, b: 2}` -> ['a: 1', 'b: 2']; None when not a flow map."""
+    v = value.strip()
+    if v.startswith("{") and v.endswith("}"):
+        inner = v[1:-1].strip()
+        if not inner:
+            return []
+        items = [x.strip() for x in inner.split(",") if x.strip()]
+        # a comma inside a value (e.g. {note: a, b}) isn't a map separator;
+        # only treat as flow map when every part looks like `k: v`
+        return items if all(":" in x for x in items) else None
+    return None
+
+
 def upsert_metadata(fm_raw: str, key: str, value: str) -> str:
     """Set metadata.<key> = value inside frontmatter text.
 
-    Preserves every other line verbatim. Handles: existing key (replace),
-    existing metadata: block (insert under it), no block (append one).
-    `value` is written unquoted - callers pass already-YAML-safe scalars.
+    Preserves every other line verbatim. Handles: existing key (replace,
+    consuming its continuation children), existing metadata: block (insert
+    under it), flow-style metadata: {..} (normalized to a block), no block
+    (append one). `value` is written unquoted - callers pass safe scalars.
     """
     lines = fm_raw.splitlines()
     meta_idx = None
@@ -98,8 +113,15 @@ def upsert_metadata(fm_raw: str, key: str, value: str) -> str:
             break
 
     if meta_idx is None:
-        out = list(lines) + ["metadata:", f"  {key}: {value}"]
-        return "\n".join(out)
+        return "\n".join(list(lines) + ["metadata:", f"  {key}: {value}"])
+
+    # flow-style `metadata: {a: 1}` or a stray scalar - normalize to a block
+    inline = lines[meta_idx].split(":", 1)[1].strip()
+    if inline:
+        items = _flow_map_items(inline)
+        block = ["metadata:"] + [f"  {x}" for x in items] if items is not None \
+            else ["metadata:"]
+        lines[meta_idx:meta_idx + 1] = block
 
     # scan the metadata block (indented lines after `metadata:`)
     key_re = re.compile(rf"^(\s+){re.escape(key)}\s*:")
@@ -107,27 +129,48 @@ def upsert_metadata(fm_raw: str, key: str, value: str) -> str:
     insert_at = j
     while j < len(lines) and (lines[j][:1] in " \t" or not lines[j].strip()):
         if lines[j].strip():
-            insert_at = j + 1
-            if key_re.match(lines[j]):
-                indent = key_re.match(lines[j]).group(1)
-                lines[j] = f"{indent}{key}: {value}"
+            m = key_re.match(lines[j])
+            if m:
+                # replace the key line AND swallow its continuation children
+                # (list items / folded scalars) so they don't dangle
+                end = j + 1
+                ind = len(m.group(1))
+                while end < len(lines):
+                    nxt = lines[end]
+                    if not nxt.strip():
+                        end += 1
+                        continue
+                    nind = len(nxt) - len(nxt.lstrip())
+                    is_seq = nxt.lstrip().startswith(("- ", "-\t")) and nind >= ind
+                    is_deeper = nxt[:1] in " \t" and nind > ind
+                    if is_seq or is_deeper:
+                        end += 1
+                        continue
+                    break
+                lines[j:end] = [f"{m.group(1)}{key}: {value}"]
                 return "\n".join(lines)
+            insert_at = j + 1
         j += 1
     lines.insert(insert_at, f"  {key}: {value}")
     return "\n".join(lines)
 
 
 def rewrite_frontmatter(text: str, updates: dict[str, str]) -> str:
-    """Apply metadata upserts to a full SKILL.md text; returns new text."""
-    fm_raw, body, fm_start, fm_end = split_frontmatter(text)
+    """Apply metadata upserts to a full SKILL.md text; returns new text.
+    Preserves the file's own line endings (CRLF files stay CRLF)."""
+    eol = "\r\n" if "\r\n" in text else "\n"
+    nl = text.replace("\r\n", "\n").replace("\r", "\n")
+    fm_raw, body, fm_start, fm_end = split_frontmatter(nl)
     fm = fm_raw or ""
     for k, v in updates.items():
         fm = upsert_metadata(fm, k, v)
     if fm_start == -1:
-        return f"---\n{fm}\n---\n\n" + text
-    lines = text.splitlines()
-    return "\n".join(lines[:fm_start + 1]) + "\n" + fm + "\n" + \
+        return ("---" + eol + fm.replace("\n", eol) + eol + "---" +
+                eol + eol + text)
+    lines = nl.splitlines()
+    out = "\n".join(lines[:fm_start + 1]) + "\n" + fm + "\n" + \
         "\n".join(lines[fm_end:])
+    return out.replace("\n", eol)
 
 
 def description_block(fm_raw: str, body_offset: int) -> tuple[int, int] | None:

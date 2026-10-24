@@ -111,12 +111,16 @@ def apply_fix(fix) -> tuple[bool, str]:
         return False, f"read failed: {e}"
     if not fix.find:
         return False, "empty find string"
-    if fix.find not in raw:
-        if fix.replace and fix.replace in raw:
+    # fixes are built from \n-normalized text; translate to the file's EOL
+    eol = "\r\n" if "\r\n" in raw else "\n"
+    find = fix.find.replace("\n", eol)
+    repl = fix.replace.replace("\n", eol)
+    if find not in raw:
+        if repl and repl in raw:
             return True, "already applied"
         return False, "find string not present (file changed since scan?)"
-    new = raw.replace(fix.find, fix.replace) if fix.replace_all \
-        else raw.replace(fix.find, fix.replace, 1)
+    new = raw.replace(find, repl) if fix.replace_all \
+        else raw.replace(find, repl, 1)
     try:
         p.write_text(new, encoding="utf-8")
     except OSError as e:
