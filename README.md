@@ -56,6 +56,7 @@ surgeon watch    # alerts when the repo a skill describes drifts out from under 
 surgeon adopt    # declares what a skill monitors so watch can track it
 surgeon coverage # maps which requests your library can and can't handle
 surgeon diff     # "is my library getting healthier or decaying?" vs a baseline
+surgeon doctor   # checks surgeon's own setup (python, Ollama, PATH)
 surgeon badge    # README score badge: ![skill-surgeon](...93/100...)
 ```
 
@@ -90,6 +91,7 @@ skill directories. MIT licensed.
 
 ```bash
 git clone https://github.com/ChardXBT/skill-surgeon && cd skill-surgeon
+pip install -e .                              # optional: puts `surgeon` on PATH
 python -m surgeon scan examples/demo-skills   # finds the planted bugs
 python -m surgeon scan <your-skills-folder>   # your real library
 ```

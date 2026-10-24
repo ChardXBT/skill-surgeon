@@ -319,6 +319,7 @@ def cmd_watch(args) -> int:
     if not results:
         print(c("  no skills declare metadata.workspace - nothing to watch", "dim"))
         print("  declare one in frontmatter:  metadata: {workspace: ~/path/to/repo}")
+        print(c("  or auto-stamp + auto-detect:  surgeon adopt <paths> --detect --yes", "dim"))
         return 0
     print("")
     for r in results:

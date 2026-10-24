@@ -44,11 +44,12 @@ The engine is the Python package beside this file:
 |---|---|
 | `scan [paths]` | Audit, print report, write `surgery-plan.json`, optional `--md`/`--json`/`--ci` |
 | `fix [paths]` | Scan then interactively approve/apply in the terminal |
-| `apply` | Apply chosen fix ids from a plan file (`--ids` / `--all`) |
+| `apply` | Apply chosen fix ids from a plan file (`--ids` / `--all` / `--safe-only` for deterministic fixes only) |
 | `tailor [paths]` | Find host-environment mismatches (.claude paths, `python3`, POSIX tools) and propose rewrites; `--for <platform>` ports conventions |
 | `test [paths]` | Smoke-test documented commands: interpreter present, file exists, compiles; `--run` executes behind a denylist with secrets scrubbed from env |
 | `watch [paths]` | Flag skills whose declared `metadata.workspace` repos changed since `metadata.verified_at` |
-| `adopt [paths]` | Stamp `metadata.workspace` + `verified_at` so `watch` has a baseline; `--yes` writes, `--workspace` declares a repo |
+| `adopt [paths]` | Stamp `metadata.workspace` + `verified_at` so `watch` has a baseline; `--yes` writes, `--detect` guesses the repo from referenced files' git roots |
+| `doctor` | Check surgeon's own runtime: python version, Ollama, embed model, PATH entry |
 | `coverage [paths]` | Routing map: skills without trigger phrasing, description overlap (local embeddings when available, token overlap otherwise), uncovered intents |
 | `diff <baseline> [paths]` | Compare current health to a `scan --save-baseline` snapshot: new / resolved / unchanged findings and score delta |
 | `badge [paths]` | Print a README score badge |
