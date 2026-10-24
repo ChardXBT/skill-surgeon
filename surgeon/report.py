@@ -115,7 +115,8 @@ def apply_fix(fix) -> tuple[bool, str]:
         if fix.replace and fix.replace in raw:
             return True, "already applied"
         return False, "find string not present (file changed since scan?)"
-    new = raw.replace(fix.find, fix.replace, 1)
+    new = raw.replace(fix.find, fix.replace) if fix.replace_all \
+        else raw.replace(fix.find, fix.replace, 1)
     try:
         p.write_text(new, encoding="utf-8")
     except OSError as e:

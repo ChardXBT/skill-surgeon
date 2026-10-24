@@ -80,6 +80,7 @@ class Fix:
     find: str = ""
     replace: str = ""
     auto: bool = True       # False => needs human judgement (rename_dir/manual)
+    replace_all: bool = False  # replace every occurrence, not just the first
     status: str = "pending" # pending | applied | skipped | failed
 
     def to_dict(self) -> dict:
@@ -87,7 +88,7 @@ class Fix:
             "id": self.id, "skill": self.skill, "rule": self.rule,
             "kind": self.kind, "file": self.file, "rationale": self.rationale,
             "find": self.find, "replace": self.replace, "auto": self.auto,
-            "status": self.status,
+            "replace_all": self.replace_all, "status": self.status,
         }
 
     @staticmethod
@@ -96,7 +97,8 @@ class Fix:
             id=d["id"], skill=d["skill"], rule=d["rule"], kind=d["kind"],
             file=d["file"], rationale=d.get("rationale", ""),
             find=d.get("find", ""), replace=d.get("replace", ""),
-            auto=d.get("auto", True), status=d.get("status", "pending"),
+            auto=d.get("auto", True), replace_all=d.get("replace_all", False),
+            status=d.get("status", "pending"),
         )
 
 

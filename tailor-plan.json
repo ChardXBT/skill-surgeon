@@ -1,0 +1,17 @@
+{
+  "generated": "2026-10-24T03:21:52.551234+00:00",
+  "fixes": [
+    {
+      "id": "F-001",
+      "skill": "ui-ux-pro-max",
+      "rule": "T002",
+      "kind": "replace_text",
+      "file": "C:\\Users\\ericy\\Downloads\\ab-test\\B\\ui-ux-pro-max\\SKILL.md",
+      "rationale": "`python3` is absent on this host; `python` resolves to C:\\Users\\ericy\\AppData\\Local\\Programs\\Python\\Python313\\python.EXE",
+      "find": "python3 ",
+      "replace": "python ",
+      "auto": true,
+      "status": "pending"
+    }
+  ]
+}

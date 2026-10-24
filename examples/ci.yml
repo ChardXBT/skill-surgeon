@@ -1,0 +1,13 @@
+# Drop-in CI gate: fail PRs that introduce skill errors.
+# Works on any repo containing SKILL.md files - zero dependencies.
+name: skill-surgeon
+on: [push, pull_request]
+jobs:
+  skills:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.x" }
+      - run: python -m surgeon scan . --ci
+        # exit 1 when errors exist; one-line summary in the log

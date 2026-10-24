@@ -42,12 +42,23 @@ The engine is the Python package beside this file:
 
 | Command | Purpose |
 |---|---|
-| `scan [paths]` | Audit, print report, write `surgery-plan.json`, optional `--md`/`--json` |
+| `scan [paths]` | Audit, print report, write `surgery-plan.json`, optional `--md`/`--json`/`--ci` |
 | `fix [paths]` | Scan then interactively approve/apply in the terminal |
 | `apply` | Apply chosen fix ids from a plan file (`--ids` / `--all`) |
+| `tailor [paths]` | Find host-environment mismatches (.claude paths, `python3`, POSIX tools) and propose rewrites; `--for <platform>` ports conventions |
+| `test [paths]` | Smoke-test documented commands: interpreter present, file exists, compiles; `--run` executes behind a denylist |
+| `watch [paths]` | Flag skills whose declared `metadata.workspace` repos changed since `metadata.verified_at` |
+| `coverage [paths]` | Routing map: skills without trigger phrasing, description overlap, uncovered intents |
+| `badge [paths]` | Print a README score badge |
 | `rules` | List all rule ids and what they check |
 
 Exit codes: `0` clean/warnings, `1` errors present, `3` usage/IO error - usable as a CI gate.
+
+## Beyond the audit
+
+- **Tailor before trusting**: a skill authored for another platform fails in ways a scan can't see; run `tailor` on newly installed skills, and `test --run` when behavior matters.
+- **Watch for decay**: skills with `metadata.workspace` + `metadata.verified_at` get live drift reports - changed referenced files are the strongest stale signal.
+- **Coverage maps routing**: a skill with no "use when" phrasing may never fire; token-overlap pairs predict router confusion without the model.
 
 ## What the checks mean
 

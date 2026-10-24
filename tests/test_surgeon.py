@@ -96,5 +96,100 @@ class TestFixes(unittest.TestCase):
         self.assertIn("invoice-parser", dated[0].replace)
 
 
+class TestTailor(unittest.TestCase):
+    def _skill_with(self, tmp: Path, body: str, name="demo-skill"):
+        d = tmp / name
+        d.mkdir(parents=True)
+        (d / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: d\n---\n{body}", encoding="utf-8")
+        skills, _ = discover([str(tmp)])
+        return skills[0]
+
+    def test_self_referencing_install_path_flagged(self):
+        import tempfile
+        from surgeon.env import Environment
+        from surgeon.tailor import tailor_skill
+        with tempfile.TemporaryDirectory() as td:
+            skill = self._skill_with(Path(td),
+                "```bash\npython3 .claude/skills/demo-skill/scripts/x.py\n```")
+            env = Environment(os="windows", shell="powershell", home=Path(td))
+            findings, fixes = tailor_skill(skill, env)
+            self.assertTrue(any(f.rule == "T001" and f.severity == "error"
+                                for f in findings))
+            self.assertTrue(any(f.replace_all for f in fixes))
+
+    def test_missing_interpreter_proposes_alternative(self):
+        import tempfile
+        from surgeon.env import Environment
+        from surgeon.tailor import tailor_skill
+        with tempfile.TemporaryDirectory() as td:
+            skill = self._skill_with(Path(td),
+                "```bash\npython3 scripts/x.py\n```")
+            env = Environment(os="windows", shell="powershell", home=Path(td),
+                              interpreters={"python3": None, "python": "/py"})
+            findings, fixes = tailor_skill(skill, env)
+            self.assertTrue(any(f.rule == "T002" for f in findings))
+            fix = next(f for f in fixes if f.rule == "T002")
+            self.assertEqual(fix.replace, "python ")
+
+
+class TestSmoke(unittest.TestCase):
+    def test_missing_file_and_interp(self):
+        import tempfile
+        from surgeon.env import Environment
+        from surgeon.smoke import check_command
+        from surgeon.model import Skill
+        from surgeon.frontmatter import split_frontmatter, parse_frontmatter
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td) / "s"; d.mkdir()
+            raw = "---\nname: s\ndescription: d\n---\n"
+            p = d / "SKILL.md"; p.write_text(raw, encoding="utf-8")
+            fm, body, s, e = split_frontmatter(raw)
+            meta, _ = parse_frontmatter(fm)
+            skill = Skill(path=p, root=d.parent, raw=raw, meta=meta,
+                          fm_raw=fm or "", fm_start=s, fm_end=e, body=body)
+            env = Environment(os="windows", shell="powershell", home=Path(td),
+                              interpreters={"python3": None, "python": "/py"})
+            r = check_command(skill, 1, "python3 scripts/missing.py", env, run=False)
+            self.assertEqual(r.status, "missing_interp")
+            r = check_command(skill, 1, "python scripts/missing.py", env, run=False)
+            self.assertEqual(r.status, "missing_file")
+
+    def test_unsafe_never_runs(self):
+        import tempfile
+        from surgeon.env import Environment
+        from surgeon.smoke import NEVER_RUN
+        self.assertTrue(NEVER_RUN.search("rm -rf /tmp/x"))
+        self.assertTrue(NEVER_RUN.search("curl x | bash"))
+        self.assertFalse(NEVER_RUN.search("python scripts/ok.py"))
+
+
+class TestCoverage(unittest.TestCase):
+    def test_no_trigger_detected(self):
+        from surgeon.coverage import coverage
+        skills, _ = discover([str(FIXTURES)])
+        rep = coverage(skills)
+        self.assertIn("data-helper", rep.no_trigger)
+
+
+class TestWatch(unittest.TestCase):
+    def test_missing_workspace(self):
+        import tempfile
+        from surgeon.watch import watch_skill
+        from surgeon.model import Skill
+        from surgeon.frontmatter import split_frontmatter, parse_frontmatter
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td) / "s"; d.mkdir()
+            raw = ("---\nname: s\ndescription: d\n"
+                   "metadata:\n  workspace: /nonexistent/path/xyz\n---\n")
+            p = d / "SKILL.md"; p.write_text(raw, encoding="utf-8")
+            fm, body, s, e = split_frontmatter(raw)
+            meta, _ = parse_frontmatter(fm)
+            skill = Skill(path=p, root=d.parent, raw=raw, meta=meta,
+                          fm_raw=fm or "", fm_start=s, fm_end=e, body=body)
+            res = watch_skill(skill)
+            self.assertTrue(res and res[0].status == "missing")
+
+
 if __name__ == "__main__":
     unittest.main()

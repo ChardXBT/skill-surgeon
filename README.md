@@ -47,6 +47,31 @@ model that runs **on your own computer** - so your private skills never get
 sent to a cloud service. Proposed fixes are exact text replacements you can
 read before saying yes.
 
+## It does more than lint
+
+```bash
+surgeon tailor   # rewrites skills to fit YOUR machine (paths, interpreters, tools)
+surgeon test     # runs the commands a skill documents - finds dead instructions
+surgeon watch    # alerts when the repo a skill describes drifts out from under it
+surgeon coverage # maps which requests your library can and can't handle
+surgeon badge    # README score badge: ![skill-surgeon](...93/100...)
+```
+
+Every one of these exists because we watched it fail for real. A popular
+skill's commands pointed at the author's machine - `tailor` finds and fixes
+that. Another crashed on Windows consoles - `test` runs the commands and
+catches it. `watch` keeps working after you're done: it notices when the
+repo a skill describes changed underneath it.
+
+## CI
+
+`scan --ci` prints one line and exits non-zero on errors:
+
+```yaml
+# .github/workflows/skills.yml - see examples/ci.yml
+- run: python -m surgeon scan skills/ --ci
+```
+
 ## Technologies
 
 Python standard library only - no dependencies, no install. Optional local
