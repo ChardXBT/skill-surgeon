@@ -53,9 +53,16 @@ read before saying yes.
 surgeon tailor   # rewrites skills to fit YOUR machine (paths, interpreters, tools)
 surgeon test     # runs the commands a skill documents - finds dead instructions
 surgeon watch    # alerts when the repo a skill describes drifts out from under it
+surgeon adopt    # declares what a skill monitors so watch can track it
 surgeon coverage # maps which requests your library can and can't handle
+surgeon diff     # "is my library getting healthier or decaying?" vs a baseline
 surgeon badge    # README score badge: ![skill-surgeon](...93/100...)
 ```
+
+Every proposed fix also carries a confidence label - deterministic rewrites
+are marked safe; fuzzy or model-guessed targets are flagged for a hard look.
+And `test --run` scrubs API keys from the environment before anything
+executes, so a skill's script can't read your credentials.
 
 Every one of these exists because we watched it fail for real. A popular
 skill's commands pointed at the author's machine - `tailor` finds and fixes

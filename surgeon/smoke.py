@@ -9,6 +9,7 @@ with a timeout, behind a denylist of dangerous patterns.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from dataclasses import dataclass, field
@@ -23,6 +24,15 @@ NEVER_RUN = re.compile(
     r"(?:^|\s|&&|\|\|)(rm|del|rmdir|sudo|curl|wget|chmod|chown|dd|mkfs|"
     r"shutdown|reboot|mv|move|copy|cp|scp|ssh|scp|git\s+push|pip\s+install|"
     r"npm\s+install|apt|brew)\b|>\s*/|>>")
+
+# env vars scrubbed before --run: skill scripts shouldn't inherit credentials
+_SECRET_ENV_RE = re.compile(
+    r"(?i)(api[_-]?key|secret|token|password|passwd|credential|auth)")
+
+
+def _scrubbed_env() -> dict:
+    """os.environ minus secret-looking variables (values stay on this host)."""
+    return {k: v for k, v in os.environ.items() if not _SECRET_ENV_RE.search(k)}
 SCRIPT_EXT = {".py", ".sh", ".ps1", ".js", ".ts", ".bash", ".rb"}
 
 
@@ -98,7 +108,8 @@ def check_command(skill: Skill, line: int, cmd: str,
                          "matches denylist; not executed")
     try:
         r = subprocess.run(cmd, shell=True, cwd=skill.dir,
-                           capture_output=True, text=True, timeout=20)
+                           capture_output=True, text=True, timeout=20,
+                           env=_scrubbed_env())
     except subprocess.TimeoutExpired:
         return CmdResult(skill.slug, line, cmd, "timeout", ">20s")
     except Exception as e:

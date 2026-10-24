@@ -28,6 +28,7 @@ class CoverageReport:
     similar_pairs: list[tuple[str, str, float]] = field(default_factory=list)
     uncovered: list[str] = field(default_factory=list)         # model pass
     model_note: str = "off"
+    embed_note: str = "off (token overlap)"
 
 
 def _tokens(text: str) -> set[str]:
@@ -39,6 +40,39 @@ def _jaccard(a: set, b: set) -> float:
     return len(a & b) / len(a | b) if a and b else 0.0
 
 
+def _embed_pairs(client, skills: list[Skill]) -> list[tuple[str, str, float]] | None:
+    """Cosine-similar pairs via local embeddings; None when unavailable."""
+    try:
+        import json
+        import math
+        import urllib.request
+        payload = json.dumps({
+            "model": "nomic-embed-text",
+            "input": [f"{s.slug}: {s.description or ''}" for s in skills],
+        }).encode()
+        req = urllib.request.Request(
+            f"{client.host}/api/embed", data=payload,
+            headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            vecs = json.loads(r.read()).get("embeddings", [])
+        if len(vecs) != len(skills):
+            return None
+        def cos(a, b):
+            d = math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(x * x for x in b))
+            return sum(x * y for x, y in zip(a, b)) / d if d else 0.0
+        out = []
+        for i in range(len(skills)):
+            for j in range(i + 1, len(skills)):
+                if skills[i].slug == skills[j].slug:
+                    continue
+                sim = cos(vecs[i], vecs[j])
+                if sim >= 0.72:   # embedding-space overlap, not token overlap
+                    out.append((skills[i].slug, skills[j].slug, round(sim, 2)))
+        return out
+    except Exception:
+        return None
+
+
 def coverage(skills: list[Skill], client=None) -> CoverageReport:
     rep = CoverageReport()
     toks = {s.slug: _tokens(s.description or "") for s in skills}
@@ -48,13 +82,22 @@ def coverage(skills: list[Skill], client=None) -> CoverageReport:
             rep.no_trigger.append(s.slug)
 
     names = list(toks)
+    jaccard_pairs: list[tuple[str, str, float]] = []
     for i, a in enumerate(names):
         for b in names[i + 1:]:
             if a == b:
                 continue
             j = _jaccard(toks[a], toks[b])
             if j >= 0.30:
-                rep.similar_pairs.append((a, b, round(j, 2)))
+                jaccard_pairs.append((a, b, round(j, 2)))
+
+    embed_pairs = _embed_pairs(client, skills) if client is not None else None
+    if embed_pairs is not None:
+        rep.similar_pairs = embed_pairs
+        rep.embed_note = "on (nomic-embed-text)"
+    else:
+        rep.similar_pairs = jaccard_pairs
+        rep.embed_note = "off (token overlap)"
 
     if client is not None:
         listing = "\n".join(f"- {s.slug}: {(s.description or '')[:160]}"

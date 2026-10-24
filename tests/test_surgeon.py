@@ -191,5 +191,74 @@ class TestWatch(unittest.TestCase):
             self.assertTrue(res and res[0].status == "missing")
 
 
+class TestAdopt(unittest.TestCase):
+    def _mk(self, td: str, fm_extra: str = ""):
+        from surgeon.model import Skill
+        from surgeon.frontmatter import split_frontmatter, parse_frontmatter
+        d = Path(td) / "s"; d.mkdir()
+        raw = f"---\nname: s\ndescription: d\n{fm_extra}---\nbody"
+        p = d / "SKILL.md"; p.write_text(raw, encoding="utf-8")
+        fm, body, s, e = split_frontmatter(raw)
+        meta, _ = parse_frontmatter(fm)
+        return Skill(path=p, root=d.parent, raw=raw, meta=meta,
+                     fm_raw=fm or "", fm_start=s, fm_end=e, body=body)
+
+    def test_plan_stamps_and_applies(self):
+        import tempfile
+        from surgeon.adopt import adopt_all
+        with tempfile.TemporaryDirectory() as td:
+            skill = self._mk(td)
+            ads = adopt_all([skill], "C:/repo/x", yes=False)
+            self.assertEqual(ads[0].updates["workspace"], "C:/repo/x")
+            self.assertFalse(ads[0].applied)            # plan only
+            ads = adopt_all([skill], "C:/repo/x", yes=True)
+            self.assertTrue(ads[0].applied)
+            txt = (Path(td) / "s" / "SKILL.md").read_text()
+            self.assertIn("verified_at:", txt)
+            self.assertIn("workspace: C:/repo/x", txt)
+            self.assertIn("name: s", txt)               # other fields preserved
+
+    def test_restamps_existing(self):
+        import tempfile
+        from surgeon.adopt import adopt_all
+        with tempfile.TemporaryDirectory() as td:
+            skill = self._mk(td, "metadata:\n  verified_at: 2020-01-01\n")
+            ads = adopt_all([skill], None, yes=True)
+            txt = (Path(td) / "s" / "SKILL.md").read_text()
+            self.assertNotIn("2020-01-01", txt)
+            self.assertIn("verified_at:", txt)
+
+
+class TestBaseline(unittest.TestCase):
+    def test_diff_new_and_resolved(self):
+        import tempfile
+        from surgeon.baseline import save_baseline, diff_baseline
+        from surgeon.model import Finding, Report, Skill
+        from surgeon.frontmatter import split_frontmatter, parse_frontmatter
+        skills, _ = discover([str(FIXTURES)])
+        r1 = Report(skills=skills)
+        r1.findings = [Finding("S007", "error", "pdf-summarizer",
+                               skills[0].path, "dead ref `x.md`")]
+        with tempfile.TemporaryDirectory() as td:
+            bp = Path(td) / "base.json"
+            save_baseline(bp, r1)
+            r2 = Report(skills=skills)   # finding resolved, none new
+            r2.findings = []
+            d = diff_baseline(bp, r2)
+            self.assertEqual(len(d["resolved"]), 1)
+            self.assertEqual(len(d["new"]), 0)
+
+
+class TestConfidence(unittest.TestCase):
+    def test_fuzzy_fix_is_review(self):
+        skills, findings = fixture_findings()
+        fixes = fixes_for_findings(skills, findings, client=None)
+        s007 = [f for f in fixes if f.rule == "S007"]
+        if s007:   # only when a fuzzy match exists
+            self.assertTrue(all(f.confidence == "review" for f in s007))
+        s012 = [f for f in fixes if f.rule == "S012"]
+        self.assertTrue(all(f.confidence == "safe" for f in s012))
+
+
 if __name__ == "__main__":
     unittest.main()

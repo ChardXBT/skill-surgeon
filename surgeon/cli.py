@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import __version__
+from .adopt import adopt_all
+from .baseline import diff_baseline, save_baseline
 from .coverage import coverage
 from .discover import discover
 from .env import describe as env_describe, detect
@@ -89,6 +91,10 @@ def cmd_scan(args) -> int:
                           "message": f.message, "file": str(f.file), "line": f.line}
                          for f in report.findings],
         }, indent=2), encoding="utf-8")
+    if getattr(args, "save_baseline", ""):
+        save_baseline(Path(args.save_baseline), report)
+        print(c(f"  baseline saved: {args.save_baseline} "
+                "(compare later with `surgeon diff`)", "dim"))
     return 1 if any(f.severity == "error" for f in report.findings) else 0
 
 
@@ -122,7 +128,8 @@ def cmd_fix(args) -> int:
     applied = 0
 
     for fx in auto:
-        print(f"\n{fx.id} · {fx.skill} · {fx.rule} - {fx.rationale}")
+        conf = c(" [review: guessed target]", "warn") if fx.confidence == "review" else ""
+        print(f"\n{fx.id} · {fx.skill} · {fx.rule}{conf} - {fx.rationale}")
         for l in fx.find.split("\n"):
             print(c("  - " + l, "error"))
         for l in fx.replace.split("\n"):
@@ -191,6 +198,49 @@ def cmd_rules(_args) -> int:
     for rid, desc in T_RULES.items():
         print(f"  {rid}  tailor {desc}")
     return 0
+
+
+def cmd_adopt(args) -> int:
+    """Stamp metadata.workspace + verified_at so `watch` has a baseline."""
+    skills, roots = discover(args.paths)
+    if not skills:
+        print("No SKILL.md files found.")
+        return 3
+    ws = str(Path(args.workspace).expanduser().resolve()) if args.workspace else None
+    ads = adopt_all(skills, ws, yes=args.yes)
+    mode = "applied" if args.yes else "plan (pass --yes to write)"
+    print(f"\n  ADOPT - declare workspace + verification stamp [{mode}]")
+    print("")
+    for ad in ads:
+        if ad.updates:
+            marks = ", ".join(f"{k}: {v}" for k, v in ad.updates.items())
+            print(f"  {c('+', 'ok')} {ad.skill.ljust(28)[:28]} {marks}")
+        else:
+            print(f"  {c('=', 'dim')} {ad.skill.ljust(28)[:28]} already declared")
+    if not args.yes:
+        print(c("\n  nothing written - re-run with --yes to stamp "
+                "verified_at (and --workspace to declare a repo)", "dim"))
+    return 0
+
+
+def cmd_diff(args) -> int:
+    """Compare current health against a `scan --save-baseline` snapshot."""
+    report, _, _ = run_scan(args.paths, args.model, args.host,
+                            True, want_fixes=False)
+    if not report.skills:
+        print("No SKILL.md files found.")
+        return 3
+    d = diff_baseline(Path(args.baseline), report)
+    print(f"\n  DIFF - vs baseline saved {d['saved']}")
+    print(f"  score {d['score_then']}/100 -> {d['score_now']}/100   "
+          f"{d['unchanged']} unchanged   "
+          f"{c(str(len(d['new'])) + ' new', 'error' if d['new'] else 'dim')}   "
+          f"{c(str(len(d['resolved'])) + ' resolved', 'ok' if d['resolved'] else 'dim')}")
+    for f in d["new"][:20]:
+        print(f"    {c('+', 'error')} {f.rule} {f.skill}: {f.message[:90]}")
+    for o in d["resolved"][:20]:
+        print(f"    {c('-', 'ok')} {o['rule']} {o['skill']}: {o['message'][:90]}")
+    return 1 if d["new"] else 0
 
 
 def cmd_tailor(args) -> int:
@@ -358,6 +408,8 @@ def main(argv=None) -> int:
     sp.add_argument("--json", default="")
     sp.add_argument("--ci", action="store_true",
                     help="one-line output for CI; exit 1 if errors")
+    sp.add_argument("--save-baseline", default="",
+                    help="snapshot findings to FILE for `surgeon diff`")
     sp.set_defaults(func=cmd_scan)
 
     sp = sub.add_parser("fix", help="scan then interactively approve & apply fixes")
@@ -398,6 +450,21 @@ def main(argv=None) -> int:
     sp = sub.add_parser("badge", help="print a README badge with the library score")
     add_common(sp)
     sp.set_defaults(func=cmd_badge)
+
+    sp = sub.add_parser("adopt", help="stamp metadata.workspace + verified_at for watch")
+    sp.add_argument("paths", nargs="*", default=[])
+    sp.add_argument("--workspace", default="",
+                    help="repo path the skill monitors (repeatable skill-wide)")
+    sp.add_argument("--yes", action="store_true",
+                    help="write the stamps (default: plan only)")
+    sp.set_defaults(func=cmd_adopt)
+
+    sp = sub.add_parser("diff", help="compare health vs a saved baseline")
+    sp.add_argument("baseline", help="file written by `scan --save-baseline`")
+    sp.add_argument("paths", nargs="*", default=[])
+    sp.add_argument("--model", default=DEFAULT_MODEL)
+    sp.add_argument("--host", default=DEFAULT_HOST)
+    sp.set_defaults(func=cmd_diff)
 
     args = p.parse_args(argv)
     return args.func(args)

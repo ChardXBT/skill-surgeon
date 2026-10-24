@@ -99,6 +99,8 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
                     s, "S004", "description", drafted,
                     "drafted by local model from skill body - review before applying")
                 if fix:
+                    fix.confidence = "review"
+                if fix:
                     fixes.append(fix)
 
         elif f.rule == "S005":  # description too long
@@ -108,7 +110,8 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
                 if short and span:
                     fixes.append(_replace_line_fix(
                         s, "S005", span, f"description: {short}",
-                        f"condensed {len(s.description or '')} -> {len(short)} chars by local model"))
+                        f"condensed {len(s.description or '')} -> {len(short)} chars by local model",
+                        confidence="review"))
 
         elif f.rule == "S007":  # dead reference -> fuzzy match
             m = re.search(r"`([^`]+)`", f.message)
@@ -124,7 +127,8 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
                         id=_id(), skill=s.slug, rule="S007", kind="replace_text",
                         file=str(s.path), find=f"`{dead}`", replace=f"`{close}`",
                         rationale=f"dead ref `{dead}` -> closest existing file `{close}` "
-                                  f"(line: {raw_at.strip()[:80]})"))
+                                  f"(line: {raw_at.strip()[:80]})",
+                        confidence="review"))
 
         elif f.rule == "S008":  # absolute path -> relative or placeholder
             m = re.search(r"`([^`]+)`", f.message)
@@ -180,7 +184,8 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
                 file=str(s.path), auto=False,
                 rationale=f"duplicate name `{s.slug}` across roots. Pick one canonical "
                           f"location (prefer {s.root}), merge unique content there, then "
-                          f"retire the shadow copy. Other locations:{''.join(others)}"))
+                          f"retire the shadow copy. Other locations:{''.join(others)}"),
+                confidence="review")
 
     return fixes
 
@@ -213,7 +218,8 @@ def fixes_for_semantic(skills: list[Skill], analysis: dict,
             if sug and span:
                 fixes.append(_replace_line_fix(
                     sk, "Q001", span, f"description: {' '.join(str(sug).split())}",
-                    f"sharpened to remove overlap with `{other.slug}`"))
+                    f"sharpened to remove overlap with `{other.slug}`",
+                    confidence="review"))
 
     for d in analysis.get("descriptions", []):
         sk = by_slug.get(d.get("name"))
@@ -227,6 +233,7 @@ def fixes_for_semantic(skills: list[Skill], analysis: dict,
             fixes.append(_replace_line_fix(
                 sk, "Q002", span,
                 f"description: {' '.join(str(sug).split())}",
-                f"local-model rewrite (quality {d.get('quality','?')}/10): {issues}"))
+                f"local-model rewrite (quality {d.get('quality','?')}/10): {issues}",
+                confidence="review"))
 
     return fixes, findings
