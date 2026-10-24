@@ -87,9 +87,11 @@ def apply_adoption(ad: Adoption) -> bool:
     """Write the planned updates into the skill's frontmatter."""
     if not ad.updates:
         return False
-    text = ad.file.read_text(encoding="utf-8")
-    ad.file.write_text(rewrite_frontmatter(text, ad.updates),
-                       encoding="utf-8")
+    with open(ad.file, "r", encoding="utf-8", errors="replace",
+              newline="") as fh:              # preserve CRLF detection
+        text = fh.read()
+    with open(ad.file, "w", encoding="utf-8", newline="") as fh:
+        fh.write(rewrite_frontmatter(text, ad.updates))
     ad.applied = True
     return True
 

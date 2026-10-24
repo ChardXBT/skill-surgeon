@@ -106,7 +106,11 @@ def apply_fix(fix) -> tuple[bool, str]:
         return False, "not auto-applicable"
     p = Path(fix.file)
     try:
-        raw = p.read_text(encoding="utf-8", errors="replace")
+        # newline="" keeps \r\n intact - read_text's universal mode would
+        # strip \r before the EOL detection below ever sees it
+        with open(p, "r", encoding="utf-8", errors="replace",
+                  newline="") as fh:
+            raw = fh.read()
     except OSError as e:
         return False, f"read failed: {e}"
     if not fix.find:
