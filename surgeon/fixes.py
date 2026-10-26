@@ -7,6 +7,7 @@ it is mechanical and the operator reviews a precise diff - never a vague idea.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from pathlib import Path
 
 from .frontmatter import description_block
@@ -20,6 +21,39 @@ _ctr = [0]
 def _id() -> str:
     _ctr[0] += 1
     return f"F-{_ctr[0]:03d}"
+
+
+# A match sitting inside a "never include / banned / out of scope" section is
+# usually an intentional literal (a denylist entry), not a path to port.
+DENYLIST_CONTEXT_RE = re.compile(
+    r"(?i)\b(?:never|banned|denylist|blocklist|forbidden|do not|must not|"
+    r"sanitiz\w*|redact|out of scope|never synced|exclud\w+|stripped)\b")
+
+
+def _denylist_context(skill: Skill, line: int) -> bool:
+    """True when `line` sits in a section that lists banned/excluded content."""
+    if not line:
+        return False
+    lines = skill.raw.split("\n")
+    for i in range(min(line - 1, len(lines) - 1), max(-1, line - 12), -1):
+        txt = lines[i]
+        if txt.startswith("#"):
+            return bool(DENYLIST_CONTEXT_RE.search(txt))
+        if DENYLIST_CONTEXT_RE.search(txt) and txt.rstrip().endswith(":"):
+            return True
+    return False
+
+
+def _dedup(fixes: list[Fix]) -> list[Fix]:
+    seen: set[tuple] = set()
+    out: list[Fix] = []
+    for fx in fixes:
+        key = (fx.file, fx.find, fx.replace, fx.rule)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(fx)
+    return out
 
 
 def _skill_lines(skill: Skill) -> list[str]:
@@ -77,11 +111,14 @@ def _insert_frontmatter_field_fix(skill: Skill, rule: str, key: str,
 def fixes_for_findings(skills: list[Skill], findings: list[Finding],
                        client: OllamaClient | None) -> list[Fix]:
     _ctr[0] = 0
+    # Variants share a skill name, so slug maps collapse them onto one file.
+    # Findings carry the file path - key on that first, fall back to slug.
+    by_path = {str(s.path): s for s in skills}
     by_slug = {s.slug: s for s in skills}
     fixes: list[Fix] = []
 
     for f in findings:
-        s = by_slug.get(f.skill)
+        s = by_path.get(str(f.file)) or by_slug.get(f.skill)
         if s is None or not f.fixable:
             continue
 
@@ -90,6 +127,10 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
                 s, "S003", "name", s.dir.name,
                 f"rename field to match directory `{s.dir.name}` (alternative: rename the dir)")
             if fix:
+                # Either side could be canonical (dir names are often arbitrary
+                # clone names) - the operator picks the direction, never auto.
+                fix.auto = False
+                fix.confidence = "review"
                 fixes.append(fix)
 
         elif f.rule == "S004":  # missing description
@@ -113,21 +154,25 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
                         f"condensed {len(s.description or '')} -> {len(short)} chars by local model",
                         confidence="review"))
 
-        elif f.rule == "S007":  # dead reference -> fuzzy match
+        elif f.rule == "S007":  # dead reference -> closest real file
             m = re.search(r"`([^`]+)`", f.message)
             if m:
                 dead = m.group(1)
-                close = closest_existing(dead, s)
+                close, quality = closest_existing(dead, s)
                 if close:
                     try:
                         raw_at = s.raw.split("\n")[f.line - 1]
                     except IndexError:
                         continue
+                    fuzzy = quality != "exact"
                     fixes.append(Fix(
-                        id=_id(), skill=s.slug, rule="S007", kind="replace_text",
+                        id=_id(), skill=s.slug, rule="S007",
+                        kind="replace_text",
                         file=str(s.path), find=f"`{dead}`", replace=f"`{close}`",
-                        rationale=f"dead ref `{dead}` -> closest existing file `{close}` "
-                                  f"(line: {raw_at.strip()[:80]})",
+                        rationale=(f"dead ref `{dead}` -> "
+                                   f"{'same-named file' if not fuzzy else 'fuzzy guess'} "
+                                   f"`{close}` (line: {raw_at.strip()[:80]})"),
+                        auto=not fuzzy and not _denylist_context(s, f.line),
                         confidence="review"))
 
         elif f.rule == "S008":  # absolute path -> relative or placeholder
@@ -145,10 +190,14 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
                     newref = ("~/" + "/".join(parts[anchor + 2:])) \
                         if anchor is not None and len(parts) > anchor + 2 \
                         else f"<path-to-{p.name}>"
+                deny = _denylist_context(s, f.line)
                 fixes.append(Fix(
                     id=_id(), skill=s.slug, rule="S008", kind="replace_text",
                     file=str(s.path), find=frag, replace=newref,
-                    rationale=f"portable replacement for machine-specific path `{frag}`"))
+                    rationale=f"portable replacement for machine-specific path `{frag}`"
+                              + (" - may be an intentional denylist literal, verify"
+                                 if deny else ""),
+                    auto=not deny, confidence="review" if deny else "safe"))
 
         elif f.rule == "S010":  # secret -> redact (literal never enters the report)
             from .rules_structural import SECRET_PATTERNS, PLACEHOLDER_HINTS
@@ -187,13 +236,16 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
                           f"retire the shadow copy. Other locations:{''.join(others)}"),
                 confidence="review")
 
-    return fixes
+    return _dedup(fixes)
 
 
 def fixes_for_semantic(skills: list[Skill], analysis: dict,
                        start_after: int) -> tuple[list[Fix], list[Finding]]:
     """Collision + weak-description findings, and rewrite fixes."""
     by_slug = {s.slug: s for s in skills}
+    # Variants share a name: a slug that maps to >1 file is ambiguous, so any
+    # rewrite for it is review-only (an auto fix could hit the wrong variant).
+    slug_counts = Counter(s.slug for s in skills)
     fixes: list[Fix] = []
     findings: list[Finding] = []
 
@@ -216,10 +268,12 @@ def fixes_for_semantic(skills: list[Skill], analysis: dict,
             sug = col.get(sugkey)
             span = _desc_span(sk)
             if sug and span:
-                fixes.append(_replace_line_fix(
+                fix = _replace_line_fix(
                     sk, "Q001", span, f"description: {' '.join(str(sug).split())}",
                     f"sharpened to remove overlap with `{other.slug}`",
-                    confidence="review"))
+                    confidence="review")
+                fix.auto = slug_counts.get(sk.slug, 0) == 1
+                fixes.append(fix)
 
     for d in analysis.get("descriptions", []):
         sk = by_slug.get(d.get("name"))
@@ -230,10 +284,12 @@ def fixes_for_semantic(skills: list[Skill], analysis: dict,
                                 f"description quality {d.get('quality','?')}/10: {issues}"))
         sug, span = d.get("suggested"), _desc_span(sk)
         if sug and span:
-            fixes.append(_replace_line_fix(
+            fix = _replace_line_fix(
                 sk, "Q002", span,
                 f"description: {' '.join(str(sug).split())}",
                 f"local-model rewrite (quality {d.get('quality','?')}/10): {issues}",
-                confidence="review"))
+                confidence="review")
+            fix.auto = slug_counts.get(sk.slug, 0) == 1
+            fixes.append(fix)
 
     return fixes, findings
