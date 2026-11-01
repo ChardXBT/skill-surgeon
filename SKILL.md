@@ -5,6 +5,7 @@ metadata:
   generates:
     - surgery-plan.json
     - surgery-log.md
+    - tailor-plan.json
 ---
 
 # Skill Surgeon
@@ -20,7 +21,7 @@ The engine is the Python package beside this file:
 
 ## Procedure
 
-1. **Discover roots.** If the user gives paths, use them. Otherwise auto-discovery covers `.agents/skills`, `.claude/skills`, `.devin/skills`, `.codex/skills`, `.cursor/skills` under the cwd and the home directory. Scan ALL roots the user cares about so duplicate-name checks see everything. SKILL.md files under `vendor/` (also `vendored/`, `third_party/`) below a scanned tree are upstream reference copies: they are skipped and counted in the report; `--include-vendored` scans them.
+1. **Discover roots.** If the user gives paths, use them. Otherwise auto-discovery covers `.agents/skills`, `.claude/skills`, `.devin/skills`, `.codex/skills`, `.cursor/skills`, `.windsurf/skills`, `agents/skills` under the cwd and the home directory. Scan ALL roots the user cares about so duplicate-name checks see everything. SKILL.md files under `vendor/` (also `vendored/`, `third_party/`) below a scanned tree are upstream reference copies: they are skipped and counted in the report; `--include-vendored` scans them. Global flags (`--model`, `--host`) also work after the subcommand, e.g. `surgeon scan --model x`.
 2. **Scan + plan:**
    `python -m surgeon scan <roots...> --plan surgery-plan.json --md report.md`
    Review the terminal report. Read `surgery-plan.json` - each fix carries exact `find`/`replace` strings.
@@ -55,7 +56,7 @@ The engine is the Python package beside this file:
 | `badge [paths]` | Print a README score badge |
 | `rules` | List all rule ids and what they check |
 
-Exit codes: `0` clean/warnings, `1` errors present, `3` usage/IO error - usable as a CI gate.
+Exit codes: `0` clean/warnings, `1` findings include errors, `2` argparse usage error, `3` no skills found / unreadable plan file - usable as a CI gate.
 
 ## Beyond the audit
 

@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import re
 import urllib.request
-import urllib.error
 
 from .model import Skill
 
@@ -29,10 +28,18 @@ class OllamaClient:
         except Exception as e:
             return False, f"Ollama unreachable at {self.host} ({e})"
         names = [m.get("name", "") for m in tags.get("models", [])]
+        # exact tag, or the model resolves to `<base>:latest` (ollama pulls
+        # `gemma4` as `gemma4:latest`). A *different* tag under the same base
+        # is NOT the model we were asked for - report it honestly.
         base = self.model.split(":", 1)[0]
-        if self.model in names or any(n.split(":", 1)[0] == base for n in names):
+        has_tag = ":" in self.model
+        if self.model in names or (not has_tag and base in names) or \
+                (not has_tag and f"{base}:latest" in names) or \
+                (has_tag and self.model == f"{base}:latest" and base in names):
             return True, "ok"
-        return False, f"model `{self.model}` not pulled (have: {', '.join(names) or 'none'})"
+        alts = [n for n in names if n.split(":", 1)[0] == base]
+        return False, (f"model `{self.model}` not pulled "
+                       f"(have: {', '.join(alts) or (', '.join(names) or 'none')})")
 
     def generate(self, prompt: str) -> str:
         payload = json.dumps({

@@ -39,6 +39,27 @@ CMD_WORDS = ("python3", "python", "py", "node", "npm", "pip", "bash", "sh",
 
 _FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 
+# POSIX env-assignment syntax that cannot run on Windows shells:
+# `export FOO=bar` or a `FOO=bar cmd` env-prefix
+POSIX_ENV_ASSIGN_RE = re.compile(
+    r"^\s*(?:export\s+[A-Za-z_]\w*=\S*|[A-Za-z_]\w*=\S+\s+\S)")
+
+# POSIX tools that genuinely exist on the host OS (windows: none of them)
+INAPPLICABLE_TOOLS = {
+    "windows": set(POSIX_ONLY_TOOLS),
+    "linux": {"brew", "osascript", "launchctl"},
+    "macos": {"apt", "apt-get", "yum", "dnf", "systemctl"},
+}
+
+# preferred replacement when an interpreter is missing, in order
+INTERP_ALT = {
+    "python3": ("python", "py"),
+    "python": ("python3", "py"),
+    "py": ("python3", "python"),
+    "pip3": ("pip",),
+    "pip": ("pip3",),
+}
+
 
 def _code_blocks(body: str) -> list[tuple[int, str]]:
     """(first_content_line, block_text) for fenced code blocks; line numbers
@@ -169,23 +190,34 @@ def tailor_skill(skill: Skill, env: Environment,
             f"`{var}` env var is platform-specific; prefer paths relative to "
             f"the SKILL.md dir{more}", line=lines[0], fixable=False))
 
+    # T006: POSIX env-assignment syntax can't run on Windows shells
+    if env.os == "windows":
+        for _start, block in _code_blocks(body):
+            for off, bline in enumerate(block.split("\n")):
+                if POSIX_ENV_ASSIGN_RE.match(bline):
+                    findings.append(Finding(
+                        "T006", "warn", slug, skill.path,
+                        f"`{bline.strip()[:60]}` uses POSIX env-assignment - "
+                        "won't run in cmd/powershell",
+                        line=skill.body_offset + _start + off, fixable=False))
+                    break
+
     # T002/T003/T005: per-command checks
     seen: set[str] = set()
     for line, cmd in _commands(body, off):
         first = cmd.split()[0]
-        if first in ("python3", "node", "pip3", "uv", "bun", "deno",
-                     "docker", "gh", "jq", "ffmpeg", "ollama", "rg", "pandoc",
-                     "pwsh", "npm"):
+        if first in ("python3", "python", "py", "node", "pip", "pip3", "uv",
+                     "bun", "deno", "docker", "gh", "jq", "ffmpeg", "ollama",
+                     "rg", "pandoc", "pwsh", "npm"):
             if not env.has(first):
                 key = f"interp:{first}"
                 if key in seen:
                     continue
                 seen.add(key)
-                alt = None
-                if first == "python3":
-                    # Windows ships the `py` launcher where `python3` is a
-                    # Microsoft Store stub - offer whichever really runs
-                    alt = next((a for a in ("python", "py") if env.has(a)), None)
+                # e.g. Windows ships the `py` launcher where `python3` is a
+                # Microsoft Store stub - offer whichever really runs
+                alt = next((a for a in INTERP_ALT.get(first, ())
+                            if env.has(a)), None)
                 findings.append(Finding(
                     "T002", "warn", slug, skill.path,
                     f"`{first}` is not on PATH in this environment"
@@ -198,7 +230,7 @@ def tailor_skill(skill: Skill, env: Environment,
                         replace_all=True,
                         rationale=f"`{first}` is absent on this host; `{alt}` resolves "
                                   f"to {env.interpreters[alt]} (replaces every use)"))
-        if env.os == "windows" and first in POSIX_ONLY_TOOLS \
+        if first in INAPPLICABLE_TOOLS.get(env.os, ()) \
                 and not shutil.which(first):
             # Git Bash / MSYS put chmod, cp... on PATH - only flag a tool
             # this host really lacks
@@ -207,7 +239,7 @@ def tailor_skill(skill: Skill, env: Environment,
             seen.add(f"posix:{first}")
             findings.append(Finding(
                 "T003", "warn", slug, skill.path,
-                f"`{first}` is POSIX-only - not available on this Windows host",
+                f"`{first}` is platform-specific - not available on this {env.os} host",
                 line=line, fixable=False))
         if first in ("jq", "pandoc", "ffmpeg", "docker", "gh", "ollama"):
             if not env.has(first):

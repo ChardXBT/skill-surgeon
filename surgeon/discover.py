@@ -19,7 +19,7 @@ VENDOR_DIRS = {"vendor", "vendored", "third_party", "third-party"}
 
 DEFAULT_ROOT_NAMES = (
     ".agents/skills", ".claude/skills", ".devin/skills",
-    ".codex/skills", ".cursor/skills", "agents/skills",
+    ".codex/skills", ".cursor/skills", ".windsurf/skills", "agents/skills",
 )
 
 

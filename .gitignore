@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 /surgery-plan*.json
 /surgery-log.md
+/tailor-plan*.json
 examples/demo-plan.json
 examples/before-report.json
 NUL

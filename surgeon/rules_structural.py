@@ -163,7 +163,7 @@ def _candidate_refs(skill: Skill) -> list[tuple[str, int]]:
         low = ref.lower()
         if re.match(r"^[A-Za-z]:/", ref):  # absolute path - S008's job
             return
-        if ("://" in ref or low.startswith(("mailto:", "#", "/", "~", "$", "<", "http"))):
+        if ("://" in ref or low.startswith(("mailto:", "#", "/", "~", "$", "<"))):
             return
         if any(c in ref for c in "*$<>") or "%" in ref or " " in ref:
             return
@@ -188,9 +188,7 @@ def _candidate_refs(skill: Skill) -> list[tuple[str, int]]:
             seen.add(ref)
             # `pos` is a body offset; count it against the body, then add the
             # frontmatter length so `line` is a real file line number.
-            body_line = _line_of(skill.body, pos)
-            line = body_line + (skill.fm_end + 1 if skill.fm_end != -1 else 0)
-            refs.append((ref, line))
+            refs.append((ref, skill.body_offset + _line_of(skill.body, pos)))
 
     for m in MD_LINK_RE.finditer(skill.body):
         add(m.group(1), m.start())
@@ -320,7 +318,7 @@ def check_skill(skill: Skill) -> list[Finding]:
             continue  # follows "e.g." / "Examples:" - illustrative, not real
         if in_denylist_context(skill, line):
             continue  # a denylist entry names a file to keep OUT, not a ref
-        if ref.startswith(BUNDLED_PREFIXES) or ref.startswith("./"):
+        if ref.startswith(BUNDLED_PREFIXES):
             f.append(Finding("S007", "error", slug, fp,
                              f"dead bundled reference `{ref}`", line=line, fixable=True))
         elif workspaces and len(existing_ws) == len(workspaces):
@@ -338,11 +336,14 @@ def check_skill(skill: Skill) -> list[Finding]:
                              f"reference `{ref}` not found in skill dir "
                              "(verify it resolves at runtime)", line=line, fixable=True))
 
-    for m in ABS_PATH_RE.finditer(skill.raw):
+    # S008 scans the body only: absolute paths in frontmatter are config
+    # (metadata.workspace is what `adopt` itself stamps), not instructions.
+    for m in ABS_PATH_RE.finditer(skill.body):
         frag = m.group(0)
         if _placeholder_user_path(frag):
             continue  # `C:\Users\<you>\...` documents a shape, not a machine
-        line = _line_of(skill.raw, m.start())
+        # m.start() is an offset in skill.body - add body_offset for the file line
+        line = skill.body_offset + _line_of(skill.body, m.start())
         if in_denylist_context(skill, line):
             f.append(Finding("S008", "info", slug, fp,
                              f"absolute path `{frag}` listed in a denylist "

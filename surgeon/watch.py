@@ -8,7 +8,7 @@ reports which referenced files changed since - the skills most likely stale.
 
 from __future__ import annotations
 
-import re
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -105,8 +105,12 @@ def watch_skill(skill: Skill) -> list[WatchResult]:
             continue
         rc, _ = _git(ws, "rev-parse", "--git-dir")
         if rc != 0:
-            res.status = "not_git"
-            res.detail = "workspace is not a git repo; drift cannot be tracked"
+            if shutil.which(GIT) is None:
+                res.status = "untracked"
+                res.detail = "git is not on PATH; drift cannot be tracked"
+            else:
+                res.status = "not_git"
+                res.detail = "workspace is not a git repo; drift cannot be tracked"
             out.append(res)
             continue
 

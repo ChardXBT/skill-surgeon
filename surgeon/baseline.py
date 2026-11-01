@@ -24,7 +24,8 @@ def _signature(f: Finding) -> str:
     two different dead refs don't collapse into one signature.
     """
     msg = re.sub(r"line \d+", "line", f.message)        # mask line numbers
-    msg = re.sub(r"[A-Za-z]:[\\/]\S+", "<abspath>", msg)  # mask abs prefixes
+    msg = re.sub(r"[A-Za-z]:[\\/]\S+|/(?:home|Users)/\S+",
+                 "<abspath>", msg)                     # mask abs prefixes
     if f.rule in ("S005", "S006"):
         # size findings restate a measurement ("~5791 tokens"); a one-word
         # edit must not read as one resolved + one new finding

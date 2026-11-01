@@ -30,6 +30,7 @@ class Adoption:
     already: list[str] = field(default_factory=list)   # keys already set
     detected: str = ""                                  # auto-guessed workspace
     applied: bool = False
+    error: str = ""
 
 
 def _git_root(path: Path) -> Path | None:
@@ -93,11 +94,15 @@ def apply_adoption(ad: Adoption) -> bool:
     """Write the planned updates into the skill's frontmatter."""
     if not ad.updates:
         return False
-    with open(ad.file, "r", encoding="utf-8", errors="replace",
-              newline="") as fh:              # preserve CRLF detection
-        text = fh.read()
-    with open(ad.file, "w", encoding="utf-8", newline="") as fh:
-        fh.write(rewrite_frontmatter(text, ad.updates))
+    try:
+        with open(ad.file, "r", encoding="utf-8", errors="replace",
+                  newline="") as fh:              # preserve CRLF detection
+            text = fh.read()
+        with open(ad.file, "w", encoding="utf-8", newline="") as fh:
+            fh.write(rewrite_frontmatter(text, ad.updates))
+    except OSError as e:
+        ad.error = str(e)   # one unwritable skill must not abort the batch
+        return False
     ad.applied = True
     return True
 

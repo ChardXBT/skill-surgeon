@@ -139,6 +139,7 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
     by_slug = {s.slug: s for s in skills}
     fixes: list[Fix] = []
     s009_done: set[str | None] = set()
+    redacted: set[str] = set()
 
     for f in findings:
         s = by_path.get(str(f.file)) or by_slug.get(f.skill)
@@ -146,15 +147,17 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
             continue
 
         if f.rule == "S003":  # name != dir
-            fix = _set_frontmatter_field_fix(
-                s, "S003", "name", s.dir.name,
-                f"rename field to match directory `{s.dir.name}` (alternative: rename the dir)")
-            if fix:
-                # Either side could be canonical (dir names are often arbitrary
-                # clone names) - the operator picks the direction, never auto.
-                fix.auto = False
-                fix.confidence = "review"
-                fixes.append(fix)
+            if NAME_RE.match(s.dir.name):  # else the "fix" creates an S002 violation
+                fix = _set_frontmatter_field_fix(
+                    s, "S003", "name", s.dir.name,
+                    f"rename field to match directory `{s.dir.name}` (alternative: rename the dir)")
+                if fix:
+                    # Either side could be canonical (dir names are often
+                    # arbitrary clone names) - the operator picks the
+                    # direction, never auto.
+                    fix.auto = False
+                    fix.confidence = "review"
+                    fixes.append(fix)
 
         elif f.rule == "S004":  # missing description
             drafted = draft_description(client, s) if client else None
@@ -164,7 +167,6 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
                     "drafted by local model from skill body - review before applying")
                 if fix:
                     fix.confidence = "review"
-                if fix:
                     fixes.append(fix)
 
         elif f.rule == "S005":  # description too long
@@ -236,12 +238,15 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
             for rx, _label in SECRET_PATTERNS:
                 for m in rx.finditer(scope):
                     val = m.group(1) if m.lastindex else m.group(0)
-                    if not any(h in val.lower() for h in PLACEHOLDER_HINTS):
+                    if any(h in val.lower() for h in PLACEHOLDER_HINTS):
+                        continue
+                    if val not in redacted:   # pick the literal THIS finding is about
                         literal = val
                         break
                 if literal:
                     break
             if literal:
+                redacted.add(literal)
                 fixes.append(Fix(
                     id=_id(), skill=s.slug, rule="S010", kind="replace_text",
                     file=str(s.path), find=literal, replace="<redacted>",
@@ -282,13 +287,16 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
                           f"differing content. Pick one canonical copy, merge any "
                           f"unique content into it, then retire or re-sync the "
                           f"others. Locations: {locs}"))
-
     return _dedup(fixes)
 
 
 def fixes_for_semantic(skills: list[Skill], analysis: dict,
-                       start_after: int) -> tuple[list[Fix], list[Finding]]:
-    """Collision + weak-description findings, and rewrite fixes."""
+                       start_after: int = 0) -> tuple[list[Fix], list[Finding]]:
+    """Collision + weak-description findings, and rewrite fixes.
+
+    `start_after` is accepted for callers that want semantic ids to continue
+    an existing structural-fix numbering; ids are global via `_ctr` so it is
+    informational only."""
     by_slug = {s.slug: s for s in skills}
     # Variants share a name: a slug that maps to >1 file is ambiguous, so any
     # rewrite for it is review-only (an auto fix could hit the wrong variant).
@@ -301,8 +309,6 @@ def fixes_for_semantic(skills: list[Skill], analysis: dict,
         if a not in by_slug or b not in by_slug:
             continue
         conf = col.get("confidence", "medium")
-        msg = (f"trigger collision with `{b}` ({conf}): {col.get('reason', '')}"
-               if True else "")
         findings.append(Finding("Q001", "warn" if conf != "high" else "error",
                                 a, by_slug[a].path,
                                 f"trigger collision with `{b}` ({conf}): {col.get('reason','')}"))

@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from .model import Finding, Report, Skill
+from .model import Report
 
 _C = {"error": "\033[91m", "warn": "\033[93m", "info": "\033[96m",
       "ok": "\033[92m", "dim": "\033[2m", "bold": "\033[1m", "r": "\033[0m"}

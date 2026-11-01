@@ -156,7 +156,9 @@ def coverage(skills: list[Skill], client=None) -> CoverageReport:
                 "cover at all (gaps where no skill would route). "
                 "JSON only: {\"uncovered\": [\"intent\", ...]}"))
             if isinstance(data, dict):
-                rep.uncovered = [str(x) for x in data.get("uncovered", [])][:8]
+                unc = data.get("uncovered", [])
+                rep.uncovered = ([str(x) for x in unc][:8]
+                                 if isinstance(unc, list) else [])
                 rep.model_note = "on"
             else:
                 rep.model_note = "model returned no usable JSON"
