@@ -361,6 +361,15 @@ class TestCoverage(TmpCase):
                          sorted(rep.no_trigger))
         self.assertEqual(["sub-skill"], rep.no_trigger_nested)
 
+    def test_same_skill_in_two_roots_gets_distinct_labels(self):
+        write_skill(self.root / "lib" / "skills", "relay", desc="Relay thing")
+        write_skill(self.root / "home" / "skills", "relay", desc="Relay thing")
+        skills, _ = discover([str(self.root / "lib" / "skills"),
+                              str(self.root / "home" / "skills")])
+        rep = coverage.coverage(skills)
+        self.assertEqual(["relay (home/skills/relay)", "relay (lib/skills/relay)"],
+                         sorted(rep.no_trigger))
+
     def test_trigger_phrasings_recognised(self):
         for desc in ("Load at session start to steer the agent.",
                      "Principles you can invoke by name mid-task.",

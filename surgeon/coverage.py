@@ -54,6 +54,16 @@ def _labels(skills: list[Skill]) -> dict[int, str]:
             out[i] = f"{s.slug} ({where})"
         else:
             out[i] = s.slug
+    # the same skill installed under several roots: qualify with the root
+    again = Counter(out.values())
+    for i, s in enumerate(skills):
+        if again[out[i]] > 1:
+            root = f"{s.root.parent.name}/{s.root.name}"
+            try:
+                where = f"{root}/{s.dir.relative_to(s.root).as_posix()}"
+            except ValueError:
+                where = s.dir.as_posix()
+            out[i] = f"{s.slug} ({where})"
     return out
 
 
