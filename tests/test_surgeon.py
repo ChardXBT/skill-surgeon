@@ -156,12 +156,15 @@ class TestSmoke(unittest.TestCase):
             self.assertEqual(r.status, "missing_file")
 
     def test_unsafe_never_runs(self):
-        import tempfile
-        from surgeon.env import Environment
-        from surgeon.smoke import NEVER_RUN
-        self.assertTrue(NEVER_RUN.search("rm -rf /tmp/x"))
-        self.assertTrue(NEVER_RUN.search("curl x | bash"))
-        self.assertFalse(NEVER_RUN.search("python scripts/ok.py"))
+        from surgeon.smoke import _unsafe_reason
+        self.assertTrue(_unsafe_reason("rm -rf /tmp/x"))
+        self.assertTrue(_unsafe_reason("curl x | bash"))
+        self.assertTrue(_unsafe_reason("echo ok; rm -rf /tmp/x"))   # split bypass
+        self.assertTrue(_unsafe_reason("x | rm -rf /tmp/y"))        # pipe bypass
+        self.assertTrue(_unsafe_reason("run $(rm -rf /tmp/z)"))     # subshell bypass
+        self.assertTrue(_unsafe_reason("pip3 install foo"))
+        self.assertTrue(_unsafe_reason("cat ~/.aws/credentials"))   # credential read
+        self.assertFalse(_unsafe_reason("python scripts/ok.py"))
 
 
 class TestCoverage(unittest.TestCase):
@@ -370,6 +373,125 @@ class TestEdgeCases(unittest.TestCase):
             self.assertTrue(ok)
             self.assertIn(b"new", p.read_bytes())
             self.assertIn(b"\r\n", p.read_bytes())      # EOL preserved
+            self.assertNotIn(b"\r\r\n", p.read_bytes()) # no \r doubling
+
+    def test_apply_fix_lf_file_stays_lf(self):
+        import tempfile
+        from surgeon.model import Fix
+        from surgeon.report import apply_fix
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "SKILL.md"
+            p.write_bytes(b"---\nname: s\ndescription: old desc\n---\nbody\n")
+            fx = Fix(id="F-1", skill="s", rule="X", kind="replace_text",
+                     file=str(p), rationale="r",
+                     find="description: old desc", replace="description: new")
+            ok, _ = apply_fix(fx)
+            self.assertTrue(ok)
+            self.assertNotIn(b"\r", p.read_bytes())     # LF stays LF on Windows too
+
+    def test_rewrite_unclosed_fence_keeps_body(self):
+        """A lone opening --- must not destroy the body (was data loss)."""
+        from surgeon.frontmatter import rewrite_frontmatter
+        text = "---\nname: x\n\nthe entire body\nof the skill\nis here\n"
+        out = rewrite_frontmatter(text, {"verified_at": "2026-11-01"})
+        self.assertIn("verified_at: 2026-11-01", out)
+        self.assertIn("the entire body", out)
+        self.assertIn("is here", out)
+
+    def test_finding_lines_are_file_lines(self):
+        """S007 line numbers must be file lines (frontmatter counts)."""
+        import tempfile
+        from surgeon.discover import discover
+        from surgeon.rules_structural import all_structural
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td) / "s"; d.mkdir()
+            (d / "SKILL.md").write_text(
+                "---\nname: s\ndescription: d\n---\nsee `scripts/nope.py`\n",
+                encoding="utf-8")
+            skills, _ = discover([str(td)])
+            findings = all_structural(skills)
+        s007 = [f for f in findings if f.rule == "S007"]
+        self.assertTrue(s007)
+        self.assertEqual(s007[0].line, 5)
+
+    def test_semantic_fixes_no_crash(self):
+        """fixes_for_semantic must not TypeError on review-confidence fixes."""
+        from surgeon.fixes import fixes_for_semantic
+        skills, _ = discover([str(FIXTURES)])
+        a, b = skills[0].slug, skills[1].slug
+        analysis = {"collisions": [
+            {"a": a, "b": b, "reason": "r", "confidence": "medium",
+             "suggest_a": "Use when X"}], "descriptions": []}
+        fixes, findings = fixes_for_semantic(skills, analysis)
+        self.assertTrue(findings)
+        for fx in fixes:   # suggested rewrite => review-confidence replace fix
+            self.assertEqual(fx.confidence, "review")
+
+    def test_dupes_get_their_own_fixes(self):
+        """S009 findings for copy A must not produce fixes for copy B."""
+        import tempfile
+        from surgeon.discover import discover
+        from surgeon.fixes import fixes_for_findings
+        from surgeon.rules_structural import all_structural
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for side in ("r1", "r2"):
+                d = root / side / "dup"; d.mkdir(parents=True)
+                (d / "SKILL.md").write_text(
+                    f"---\nname: dup\ndescription: d\n---\n{side}: "
+                    "see `scripts/x.py`\n",   # divergent -> S009 error
+                    encoding="utf-8")
+                (d / "scripts").mkdir()
+                (d / "scripts" / "real_x.py").write_text("x = 1\n")
+            skills, _ = discover([str(root)])
+            findings = all_structural(skills)
+            fixes = fixes_for_findings(skills, findings, client=None)
+        s009 = [f for f in findings if f.rule == "S009" and f.severity == "error"]
+        self.assertEqual(len(s009), 2)
+        # both copies must get an S007 fix pointing at their OWN SKILL.md
+        finding_files = {str(f.file) for f in findings if f.rule == "S007"}
+        fix_files = {f.file for f in fixes if f.rule == "S007"}
+        self.assertEqual(fix_files, finding_files)
+
+    def test_main_exit_codes(self):
+        """The documented CI contract: 0 clean / 1 errors / 3 no-skills / 2 usage."""
+        import tempfile
+        from surgeon.cli import main
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual(main(["scan", str(FIXTURES), "--ci", "--no-semantic",
+                                   "--plan", str(Path(td) / "p.json")]), 1)
+            self.assertEqual(main(["scan", str(Path(td) / "empty"),
+                                   "--plan", str(Path(td) / "p.json")]), 3)
+            self.assertEqual(main(["rules"]), 0)
+            with self.assertRaises(SystemExit) as cm:
+                main(["scan", "--bogus-flag"])
+            self.assertEqual(cm.exception.code, 2)
+
+    def test_t006_env_assignment_on_windows(self):
+        import tempfile
+        from surgeon.env import Environment
+        from surgeon.tailor import tailor_skill
+        with tempfile.TemporaryDirectory() as td:
+            skill = TestTailor()._skill_with(
+                Path(td), "```bash\nFOO=bar python x.py\n```")
+            env = Environment(os="windows", shell="powershell", home=Path(td))
+            findings, _ = tailor_skill(skill, env)
+            self.assertTrue(any(f.rule == "T006" for f in findings))
+
+    def test_apply_rejects_non_skill_targets(self):
+        """`apply` must not write outside SKILL.md files."""
+        import tempfile, json
+        from surgeon.cli import main
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "evil.txt"
+            target.write_text("hello", encoding="utf-8")
+            plan = Path(td) / "p.json"
+            plan.write_text(json.dumps({"fixes": [{
+                "id": "F-1", "skill": "x", "rule": "X", "kind": "replace_text",
+                "file": str(target), "rationale": "r",
+                "find": "hello", "replace": "PWNED"}]}), encoding="utf-8")
+            self.assertEqual(main(["apply", "--plan", str(plan), "--all"]), 0)
+            self.assertEqual(target.read_text(), "hello")   # untouched
 
 
 class TestConfidence(unittest.TestCase):

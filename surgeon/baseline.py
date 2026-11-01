@@ -24,7 +24,8 @@ def _signature(f: Finding) -> str:
     two different dead refs don't collapse into one signature.
     """
     msg = re.sub(r"line \d+", "line", f.message)        # mask line numbers
-    msg = re.sub(r"[A-Za-z]:[\\/]\S+", "<abspath>", msg)  # mask abs prefixes
+    msg = re.sub(r"[A-Za-z]:[\\/]\S+|/(?:home|Users)/\S+",
+                 "<abspath>", msg)                     # mask abs prefixes
     msg = re.sub(r"\s+", " ", msg).strip()
     return f"{f.rule}|{f.skill}|{msg[:120]}"
 

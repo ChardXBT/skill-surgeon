@@ -85,14 +85,14 @@ def _candidate_refs(skill: Skill) -> list[tuple[str, int]]:
     def add(raw_ref: str, pos: int):
         ref = raw_ref.strip().replace("\\", "/")
         ref = ref.split("#", 1)[0]
-        ref = re.sub(r":\d+(?::\d+)?$", "", ref)  # strip :LINE / :L1-L2
+        ref = re.sub(r":L?\d+(?::L?\d+)?(?:-L?\d+)?$", "", ref)  # strip :LINE / :L10-L20
         ref = ref.strip("'\"")
         if not ref or ref in seen:
             return
         low = ref.lower()
         if re.match(r"^[A-Za-z]:/", ref):  # absolute path - S008's job
             return
-        if ("://" in ref or low.startswith(("mailto:", "#", "/", "~", "$", "<", "http"))):
+        if ("://" in ref or low.startswith(("mailto:", "#", "/", "~", "$", "<"))):
             return
         if any(c in ref for c in "*$<>") or "%" in ref or " " in ref:
             return
@@ -102,7 +102,7 @@ def _candidate_refs(skill: Skill) -> list[tuple[str, int]]:
         looks_dirish = low.startswith(DIR_PREFIXES)
         if looks_fileish or looks_dirish:
             seen.add(ref)
-            refs.append((ref, _line_of(skill.raw, pos)))
+            refs.append((ref, skill.body_offset + _line_of(skill.body, pos)))
 
     for m in MD_LINK_RE.finditer(skill.body):
         add(m.group(1), m.start())
@@ -157,9 +157,14 @@ def check_skill(skill: Skill) -> list[Finding]:
     meta_map = skill.meta.get("metadata")
     meta_map = meta_map if isinstance(meta_map, dict) else {}
     ws_raw = skill.meta.get("workspace") or meta_map.get("workspace")
-    workspaces = [Path(str(w)).expanduser() for w in
-                  (ws_raw if isinstance(ws_raw, list) else [ws_raw])
-                  if isinstance(w, (str, int, float)) and w]
+    workspaces = []
+    for w in (ws_raw if isinstance(ws_raw, list) else [ws_raw]):
+        if not isinstance(w, (str, int, float)) or not w:
+            continue
+        p = Path(str(w)).expanduser()
+        # relative workspaces resolve from the skill dir - same convention
+        # as watch.py, not the caller's cwd
+        workspaces.append(p if p.is_absolute() else skill.dir / p)
 
     # Files the skill GENERATES at runtime (outputs, bundles, state) are not
     # dead references - declare via metadata.generates.
@@ -183,7 +188,7 @@ def check_skill(skill: Skill) -> list[Finding]:
     for ref, line in _candidate_refs(skill):
         if _ref_ok(ref):
             continue
-        if ref.startswith(BUNDLED_PREFIXES) or ref.startswith("./"):
+        if ref.startswith(BUNDLED_PREFIXES):
             f.append(Finding("S007", "error", slug, fp,
                              f"dead bundled reference `{ref}`", line=line, fixable=True))
         elif workspaces:
@@ -195,11 +200,14 @@ def check_skill(skill: Skill) -> list[Finding]:
                              f"reference `{ref}` not found in skill dir "
                              "(verify it resolves at runtime)", line=line, fixable=True))
 
-    for m in ABS_PATH_RE.finditer(skill.raw):
+    # S008 scans the body only: absolute paths in frontmatter are config
+    # (metadata.workspace is what `adopt` itself stamps), not instructions.
+    for m in ABS_PATH_RE.finditer(skill.body):
         frag = m.group(0)
         f.append(Finding("S008", "warn", slug, fp,
                          f"absolute path `{frag}` is machine/user-specific",
-                         line=_line_of(skill.raw, m.start()), fixable=True))
+                         line=skill.body_offset + _line_of(skill.body, m.start()),
+                         fixable=True))
         if sum(1 for x in f if x.rule == "S008") >= 5:
             break
 

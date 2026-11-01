@@ -49,6 +49,12 @@ class Skill:
     def body_lines(self) -> int:
         return len(self.body.splitlines())
 
+    @property
+    def body_offset(self) -> int:
+        """0-based file-line index where the body starts. Add to a 1-based
+        body line number to get a 1-based file line number."""
+        return self.fm_end + 1 if self.fm_end != -1 else 0
+
 
 @dataclass
 class Finding:

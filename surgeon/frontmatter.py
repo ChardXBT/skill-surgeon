@@ -129,14 +129,23 @@ def _flow_map_items(value: str) -> list[str] | None:
     return None
 
 
+def _yaml_scalar(value: str) -> str:
+    """Quote a scalar only when YAML would misread it."""
+    if (value != value.strip() or " #" in value or ": " in value
+            or value.endswith(":") or value[:1] in ("'", '"', "{", "[", "!", "&", "*")):
+        return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return value
+
+
 def upsert_metadata(fm_raw: str, key: str, value: str) -> str:
     """Set metadata.<key> = value inside frontmatter text.
 
     Preserves every other line verbatim. Handles: existing key (replace,
     consuming its continuation children), existing metadata: block (insert
     under it), flow-style metadata: {..} (normalized to a block), no block
-    (append one). `value` is written unquoted - callers pass safe scalars.
+    (append one). `value` is written unquoted unless YAML would misread it.
     """
+    value = _yaml_scalar(value)
     lines = fm_raw.splitlines()
     meta_idx = None
     for i, line in enumerate(lines):
@@ -198,7 +207,10 @@ def rewrite_frontmatter(text: str, updates: dict[str, str]) -> str:
     fm = fm_raw or ""
     for k, v in updates.items():
         fm = upsert_metadata(fm, k, v)
-    if fm_start == -1:
+    if fm_start == -1 or fm_end == -1:
+        # no fence at all, or an opening --- with no closing fence: prepend a
+        # complete block and keep the ENTIRE original text (a stray opening
+        # fence just lands in the body - losing the body would be data loss)
         return ("---" + eol + fm.replace("\n", eol) + eol + "---" +
                 eol + eol + text)
     lines = nl.splitlines()

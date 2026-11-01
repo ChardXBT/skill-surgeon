@@ -9,7 +9,6 @@ environment - or for a target agent platform via --for.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 from .env import Environment, POSIX_ONLY_TOOLS
 from .model import Finding, Fix, Skill
@@ -33,6 +32,27 @@ SKILL_ROOT_VAR_RE = re.compile(r"\$\{?(CLAUDE_SKILL_ROOT|CODEX_SKILL_ROOT|SKILL_
 CMD_WORDS = ("python3", "python", "py", "node", "npm", "pip", "bash", "sh",
              "pwsh", "powershell", "uv", "bun", "deno", "docker", "gh", "jq",
              "ffmpeg", "ollama", "rg", "pandoc") + POSIX_ONLY_TOOLS
+
+# POSIX env-assignment syntax that cannot run on Windows shells:
+# `export FOO=bar` or a `FOO=bar cmd` env-prefix
+POSIX_ENV_ASSIGN_RE = re.compile(
+    r"^\s*(?:export\s+[A-Za-z_]\w*=\S*|[A-Za-z_]\w*=\S+\s+\S)")
+
+# POSIX tools that genuinely exist on the host OS (windows: none of them)
+INAPPLICABLE_TOOLS = {
+    "windows": set(POSIX_ONLY_TOOLS),
+    "linux": {"brew", "osascript", "launchctl"},
+    "macos": {"apt", "apt-get", "yum", "dnf", "systemctl"},
+}
+
+# preferred replacement when an interpreter is missing, in order
+INTERP_ALT = {
+    "python3": ("python", "py"),
+    "python": ("python3", "py"),
+    "py": ("python3", "python"),
+    "pip3": ("pip",),
+    "pip": ("pip3",),
+}
 
 
 def _code_blocks(body: str) -> list[tuple[int, str]]:
@@ -65,7 +85,7 @@ def _commands(body: str) -> list[tuple[int, str]]:
                 continue
             first = s.split()[0].rstrip(":")
             if first in CMD_WORDS or first.startswith(("./", "python")):
-                cmds.append((start + off, s))
+                cmds.append((start + off + 1, s))  # 1-based body line
     return cmds
 
 
@@ -81,7 +101,7 @@ def tailor_skill(skill: Skill, env: Environment,
     # T001/T004: platform install-root paths and root env vars
     for m in PLATFORM_ROOT_RE.finditer(body):
         plat, name = m.group(1), m.group(2)
-        line = body.count("\n", 0, m.start()) + 1
+        line = skill.body_offset + body.count("\n", 0, m.start()) + 1
         self_ref = name == slug or name == skill.dir.name
         wrong_root = target is not None and plat != target
         if self_ref or wrong_root:
@@ -90,35 +110,54 @@ def tailor_skill(skill: Skill, env: Environment,
                 f"hardcodes `.{plat}/skills/{name}/` - "
                 + ("self-referencing install path breaks on every other platform"
                    if self_ref else f"installed under `.{target}/skills/` here"),
-                line=line, fixable=True))
+                line=line, fixable=self_ref))
+        if self_ref:
+            # m.group(0) keeps the matched separators - a synthesized
+            # `.{plat}/skills/{name}/` find would miss \-separated text
             fixes.append(Fix(
                 id="", skill=slug, rule="T001", kind="replace_text",
                 file=str(skill.path),
-                find=f".{plat}/skills/{name}/",
+                find=m.group(0),
                 replace="", replace_all=True,
                 rationale=f"strip every `.{plat}/skills/{name}/` prefix so bundled "
                           f"paths resolve relative to the skill dir on any platform"))
+        # wrong_root gets no auto-fix: stripping `.claude/skills/<other>/`
+        # would rewrite a DIFFERENT skill's path into this skill's space
 
     for m in SKILL_ROOT_VAR_RE.finditer(body):
-        line = body.count("\n", 0, m.start()) + 1
+        line = skill.body_offset + body.count("\n", 0, m.start()) + 1
         findings.append(Finding(
             "T004", "warn", slug, skill.path,
             f"`{m.group(0)}` env var is platform-specific; prefer paths relative to "
             "the SKILL.md dir", line=line, fixable=False))
 
+    # T006: POSIX env-assignment syntax can't run on Windows shells
+    if env.os == "windows":
+        for _start, block in _code_blocks(body):
+            for off, bline in enumerate(block.split("\n")):
+                if POSIX_ENV_ASSIGN_RE.match(bline):
+                    findings.append(Finding(
+                        "T006", "warn", slug, skill.path,
+                        f"`{bline.strip()[:60]}` uses POSIX env-assignment - "
+                        "won't run in cmd/powershell",
+                        line=skill.body_offset + _start + off + 1, fixable=False))
+                    break
+
     # T002/T003/T005: per-command checks
     seen: set[str] = set()
-    for line, cmd in _commands(body):
+    for bline, cmd in _commands(body):
+        line = skill.body_offset + bline
         first = cmd.split()[0]
-        if first in ("python3", "node", "pip3", "uv", "bun", "deno",
-                     "docker", "gh", "jq", "ffmpeg", "ollama", "rg", "pandoc",
-                     "pwsh", "npm"):
+        if first in ("python3", "python", "py", "node", "pip", "pip3", "uv",
+                     "bun", "deno", "docker", "gh", "jq", "ffmpeg", "ollama",
+                     "rg", "pandoc", "pwsh", "npm"):
             if not env.has(first):
                 key = f"interp:{first}"
                 if key in seen:
                     continue
                 seen.add(key)
-                alt = "python" if first == "python3" and env.has("python") else None
+                alt = next((a for a in INTERP_ALT.get(first, ())
+                            if env.has(a)), None)
                 findings.append(Finding(
                     "T002", "warn", slug, skill.path,
                     f"`{first}` is not on PATH in this environment"
@@ -131,13 +170,13 @@ def tailor_skill(skill: Skill, env: Environment,
                         replace_all=True,
                         rationale=f"`{first}` is absent on this host; `{alt}` resolves "
                                   f"to {env.interpreters[alt]} (replaces every use)"))
-        if env.os == "windows" and first in POSIX_ONLY_TOOLS:
+        if first in INAPPLICABLE_TOOLS.get(env.os, ()):
             if f"posix:{first}" in seen:
                 continue
             seen.add(f"posix:{first}")
             findings.append(Finding(
                 "T003", "warn", slug, skill.path,
-                f"`{first}` is POSIX-only - not available on this Windows host",
+                f"`{first}` is platform-specific - not available on this {env.os} host",
                 line=line, fixable=False))
         if first in ("jq", "pandoc", "ffmpeg", "docker", "gh", "ollama"):
             if not env.has(first):

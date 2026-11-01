@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from .model import Finding, Report, Skill
+from .model import Report
 
 _C = {"error": "\033[91m", "warn": "\033[93m", "info": "\033[96m",
       "ok": "\033[92m", "dim": "\033[2m", "bold": "\033[1m", "r": "\033[0m"}
@@ -126,7 +126,10 @@ def apply_fix(fix) -> tuple[bool, str]:
     new = raw.replace(find, repl) if fix.replace_all \
         else raw.replace(find, repl, 1)
     try:
-        p.write_text(new, encoding="utf-8")
+        # newline="" disables \n -> os.linesep translation: without it a
+        # Windows write turns CRLF files into \r\r\n and LF files into CRLF
+        with open(p, "w", encoding="utf-8", newline="") as fh:
+            fh.write(new)
     except OSError as e:
         return False, f"write failed: {e}"
     return True, "applied"

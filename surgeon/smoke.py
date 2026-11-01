@@ -17,15 +17,50 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .env import Environment
+from .env import CLIS, INTERPRETERS, Environment
 from .model import Skill
 from .tailor import _commands
 
-# never executed, even with --run
-NEVER_RUN = re.compile(
-    r"(?:^|\s|&&|\|\|)(rm|del|rmdir|sudo|curl|wget|chmod|chown|dd|mkfs|"
-    r"shutdown|reboot|mv|move|copy|cp|scp|ssh|scp|git\s+push|pip\s+install|"
-    r"npm\s+install|apt|brew)\b|>\s*/|>>")
+# never executed, even with --run. Checked per segment (the command is
+# split on ; | && || ` $( ) so `echo x; rm -rf /` or `$(rm -rf /)` can't
+# smuggle a denied verb past a prefix-anchored match.
+_NEVER_TOKENS = {
+    "rm", "del", "rmdir", "sudo", "chmod", "chown", "dd", "mkfs",
+    "shutdown", "reboot", "mv", "move", "copy", "cp", "scp", "ssh",
+    "format", "reg", "bitsadmin", "certutil", "mshta", "iex", "apt",
+    "apt-get", "brew", "yum", "dnf", "chattr",
+}
+_NEVER_RE = re.compile(
+    r"(git\s+push|pip3?\s+install|npm\s+install|pypi\s+install|"
+    r"curl|wget|iwr\b|irm\b|invoke-(webrequest|expression|command)|"
+    r"powershell|pwsh|Remove-Item|>\s*(?:/|~|\.\.)|>>)",
+    re.IGNORECASE)
+_SEGMENT_SPLIT = re.compile(r"&&|\|\||[;|`]|\$\(")
+# commands whose *output* we must not produce: reads of credential files
+# would leak secrets into the report detail field
+_READ_CMDS = {"cat", "type", "get-content", "head", "tail", "less", "more"}
+_SENSITIVE_PATH_RE = re.compile(
+    r"(?i)(\.ssh|\.aws|\.gnupg|\.env\b|id_rsa|id_ed25519|credentials|"
+    r"secret|password|token|\.kube|\.docker|~/\.|~\\\.|%USERPROFILE%)"
+)
+
+
+def _unsafe_reason(cmd: str) -> str | None:
+    """Why a command may not be executed; None if it looks safe."""
+    if _NEVER_RE.search(cmd):
+        return "matches denylist; not executed"
+    for seg in _SEGMENT_SPLIT.split(cmd):
+        toks = seg.split()
+        if not toks:
+            continue
+        first = toks[0].strip("'\"")
+        if first.lower() in _NEVER_TOKENS:
+            return "matches denylist; not executed"
+        if (first.lower() in _READ_CMDS
+                and any(_SENSITIVE_PATH_RE.search(t) for t in toks[1:])):
+            return "reads a credential-looking file; not executed"
+    return None
+
 
 # env vars scrubbed before --run: skill scripts shouldn't inherit credentials
 _SECRET_ENV_RE = re.compile(
@@ -59,9 +94,13 @@ class SmokeReport:
 
 
 def _invoked_files(cmd: str) -> list[str]:
-    """Local-looking file args in a command line."""
+    """Local-looking file args in a command line (redirect targets skipped:
+    `python gen.py > out.py` writes out.py, it isn't an invoked input)."""
     out = []
-    for tok in cmd.split():
+    toks = cmd.split()
+    for i, tok in enumerate(toks):
+        if tok.startswith(">") or (i and toks[i - 1].startswith(">")):
+            continue
         tok = tok.strip("'\"")
         if tok.startswith("-") or "://" in tok:
             continue
@@ -72,17 +111,18 @@ def _invoked_files(cmd: str) -> list[str]:
 
 def check_command(skill: Skill, line: int, cmd: str,
                   env: Environment, run: bool) -> CmdResult:
-    first = cmd.split()[0]
+    toks = cmd.split()
+    if not toks:
+        return CmdResult(skill.slug, line, cmd, "ok", "empty")
+    first = toks[0]
 
-    if first in ("python3", "python", "py", "node", "bash", "sh", "uv",
-                 "pwsh", "powershell", "npm", "pip", "pip3", "deno", "bun"):
-        if not env.has(first):
-            return CmdResult(skill.slug, line, cmd, "missing_interp",
-                             f"`{first}` not on PATH")
-    elif first.startswith("./"):
+    if first.startswith("./"):
         pass  # direct script invocation; file check below covers it
-    else:
-        if not env.has(first):
+    elif not env.has(first):
+        # probed-and-failed (None) is authoritative - don't resurrect e.g. the
+        # Windows Store python3 stub via which(). Unprobed tools (sudo, apt)
+        # fall back to a direct PATH check.
+        if first in INTERPRETERS + CLIS or not shutil.which(first):
             return CmdResult(skill.slug, line, cmd, "missing_interp",
                              f"`{first}` not found on PATH")
 
@@ -92,23 +132,28 @@ def check_command(skill: Skill, line: int, cmd: str,
         return CmdResult(skill.slug, line, cmd, "missing_file",
                          f"not found: {', '.join(missing)}")
 
-    # static compile check for python scripts we can see
+    # static compile check for python scripts we can see - builtin compile()
+    # so no __pycache__ is written into the audited skill and no interpreter
+    # is needed
     for f in _invoked_files(cmd):
         fp = skill.dir / f
-        if fp.suffix == ".py" and fp.exists():
-            r = subprocess.run(
-                [env.python_cmd() or "python", "-m", "py_compile", str(fp)],
-                capture_output=True, text=True, timeout=15)
-            if r.returncode != 0:
+        if fp.suffix.lower() == ".py" and fp.exists():
+            try:
+                compile(fp.read_text(encoding="utf-8", errors="replace"),
+                        str(fp), "exec")
+            except SyntaxError as e:
                 return CmdResult(skill.slug, line, cmd, "syntax_fail",
-                                 (r.stderr or "compile failed").strip().split("\n")[-1][:160])
+                                 f"{e.msg} (line {e.lineno})"[:160])
+            except OSError as e:
+                return CmdResult(skill.slug, line, cmd, "missing_file",
+                                 str(e)[:160])
 
     if not run:
         return CmdResult(skill.slug, line, cmd, "ok", "static checks passed")
 
-    if NEVER_RUN.search(cmd):
-        return CmdResult(skill.slug, line, cmd, "unsafe_skipped",
-                         "matches denylist; not executed")
+    reason = _unsafe_reason(cmd)
+    if reason:
+        return CmdResult(skill.slug, line, cmd, "unsafe_skipped", reason)
     # isolate: run against a temp copy of the skill dir so a rogue command
     # can't write into (or read neighbors of) the real library
     try:
@@ -137,5 +182,6 @@ def smoke_test(skills: list[Skill], env: Environment, run: bool) -> SmokeReport:
             if cmd in seen:
                 continue
             seen.add(cmd)
-            rep.results.append(check_command(s, line, cmd, env, run))
+            rep.results.append(
+                check_command(s, s.body_offset + line, cmd, env, run))
     return rep

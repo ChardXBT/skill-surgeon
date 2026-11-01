@@ -16,7 +16,7 @@ from .discover import discover
 from .env import describe as env_describe, detect
 from .fixes import fixes_for_findings, fixes_for_semantic
 from .model import Fix, Report
-from .report import apply_fix, render_markdown, render_plan_md, render_terminal, c
+from .report import apply_fix, render_markdown, render_terminal, c
 from .rules_structural import RULES, all_structural
 from .semantic import DEFAULT_HOST, DEFAULT_MODEL, OllamaClient, analyze
 from .smoke import smoke_test
@@ -38,7 +38,7 @@ def run_scan(paths: list[str], model: str, host: str,
         report.semantic_ok, report.semantic_note = ok, note
         if ok:
             analysis = analyze(client, skills) or {}
-            sem_fixes, sem_findings = fixes_for_semantic(skills, analysis, 0)
+            sem_fixes, sem_findings = fixes_for_semantic(skills, analysis)
             report.findings.extend(sem_findings)
             report.collisions = analysis.get("collisions", [])
             report.desc_quality = analysis.get("descriptions", [])
@@ -47,9 +47,11 @@ def run_scan(paths: list[str], model: str, host: str,
 
     fixes: list[Fix] = []
     if want_fixes:
-        fixes = fixes_for_findings(skills, report.findings, client)
+        # a known-dead client would make drafting hang for its full timeout
+        fixes = fixes_for_findings(
+            skills, report.findings, client if report.semantic_ok else None)
         if report.semantic_ok and analysis:
-            sem_fixes, _ = fixes_for_semantic(skills, analysis, len(fixes))
+            sem_fixes, _ = fixes_for_semantic(skills, analysis)
             # keep only the fix objects (findings already merged above)
             fixes.extend(sem_fixes)
     return report, fixes, roots
@@ -92,7 +94,13 @@ def cmd_scan(args) -> int:
                          for f in report.findings],
         }, indent=2), encoding="utf-8")
     if getattr(args, "save_baseline", ""):
-        save_baseline(Path(args.save_baseline), report)
+        # diff re-scans structurally only - snapshot only structural findings
+        # or every semantic finding reads as "resolved" next run
+        base = Report(skills=report.skills,
+                      findings=[f for f in report.findings
+                                if not f.rule.startswith("Q")],
+                      collisions=report.collisions)
+        save_baseline(Path(args.save_baseline), base)
         print(c(f"  baseline saved: {args.save_baseline} "
                 "(compare later with `surgeon diff`)", "dim"))
     has_errors = any(f.severity == "error" for f in report.findings)
@@ -115,6 +123,8 @@ def _apply_list(fixes: list[Fix], log_lines: list[str]) -> tuple[int, int]:
         fx.status = "applied" if ok else "failed"
         applied += ok
         failed += not ok
+        if not ok:
+            print(c(f"    FAILED {fx.id}: {msg}", "error"))
         log_lines.append(f"- {fx.id} **{fx.skill}** ({fx.rule}) - "
                          f"{'applied' if ok else 'FAILED: ' + msg} - {fx.rationale}")
     return applied, failed
@@ -137,7 +147,7 @@ def cmd_fix(args) -> int:
     log = [f"# Surgery log - {datetime.now().isoformat(timespec='seconds')}", ""]
     applied = 0
 
-    for fx in auto:
+    for i, fx in enumerate(auto):
         conf = c(" [review: guessed target]", "warn") if fx.confidence == "review" else ""
         print(f"\n{fx.id} · {fx.skill} · {fx.rule}{conf} - {fx.rationale}")
         for l in fx.find.split("\n"):
@@ -151,19 +161,20 @@ def cmd_fix(args) -> int:
         if ans == "q":
             break
         if ans == "a":
-            n, _ = _apply_list(auto[auto.index(fx):], log)
+            n, _ = _apply_list(auto[i:], log)
             applied += n
             break
         if ans in ("y", "yes"):
-            n, _ = _apply_list([fx], log)
+            n, f_ = _apply_list([fx], log)
             applied += n
-            print(c("    applied", "ok"))
+            if not f_:
+                print(c("    applied", "ok"))
         else:
             fx.status = "skipped"
             log.append(f"- {fx.id} **{fx.skill}** ({fx.rule}) - skipped")
 
     if manual:
-        print(f"\n{len(manual)} findings need manual review (written to plan file):")
+        print(f"\n{len(manual)} findings need manual review (logged to surgery-log.md):")
         for fx in manual:
             print(f"  - {fx.id} {fx.skill}: {fx.rationale[:140]}")
             log.append(f"- {fx.id} **{fx.skill}** ({fx.rule}) - manual: {fx.rationale}")
@@ -174,8 +185,9 @@ def cmd_fix(args) -> int:
     if applied:
         print(c("re-scanning to verify...", "dim"))
         report2, _, roots2 = run_scan(args.paths, args.model, args.host, True, False)
+        cnt = report2.counts()
         print(f"  score {report.score()}/100 -> {report2.score()}/100 "
-              f"({report2.counts()} findings now)")
+              f"({cnt['error']} errors, {cnt['warn']} warnings now)")
     return 0
 
 
@@ -186,7 +198,12 @@ def cmd_apply(args) -> int:
     except Exception as e:
         print(f"cannot read plan {args.plan}: {e}")
         return 3
-    fixes = [Fix.from_dict(d) for d in plan.get("fixes", [])]
+    fixes: list[Fix] = []
+    for d in plan.get("fixes", []):
+        try:
+            fixes.append(Fix.from_dict(d))
+        except (KeyError, TypeError, AttributeError) as e:
+            print(c(f"  skipping malformed plan entry: {e}", "warn"))
     ids = set()
     if args.ids:
         ids = {x.strip() for x in args.ids.split(",") if x.strip()}
@@ -194,10 +211,21 @@ def cmd_apply(args) -> int:
         print(f"no fixes selected - pass --ids F-001,F-002 or --all "
               f"({len(fixes)} pending in {args.plan})")
         return 3
+    unknown = ids - {f.id for f in fixes}
+    if unknown:
+        print(c(f"  unknown fix id(s) ignored: {', '.join(sorted(unknown))}", "warn"))
     chosen = [f for f in fixes
               if (args.all or f.id in ids) and f.kind == "replace_text" and f.auto
               and (not args.safe_only or f.confidence == "safe")]
     skipped = [f for f in fixes if f not in chosen]
+    # plans are agent-facing input: only ever write into SKILL.md files, so a
+    # crafted plan can't turn `apply` into arbitrary file modification
+    non_skill = [f for f in chosen
+                 if Path(f.file).name.lower() != "skill.md"]
+    for f in non_skill:
+        chosen.remove(f)
+        skipped.append(f)
+        print(c(f"  {f.id}: skipped - target is not a SKILL.md ({f.file})", "warn"))
     log = [f"# Surgery log - {datetime.now().isoformat(timespec='seconds')}", ""]
     applied, failed = _apply_list(chosen, log)
     for f in skipped:
@@ -227,7 +255,9 @@ def cmd_adopt(args) -> int:
     print(f"\n  ADOPT - declare workspace + verification stamp [{mode}]")
     print("")
     for ad in ads:
-        if ad.updates:
+        if ad.error:
+            print(f"  {c('!', 'error')} {ad.skill.ljust(28)[:28]} failed: {ad.error}")
+        elif ad.updates:
             marks = ", ".join(f"{k}: {v}" for k, v in ad.updates.items())
             det = c(" (detected)", "dim") if ad.detected else ""
             print(f"  {c('+', 'ok')} {ad.skill.ljust(28)[:28]} {marks}{det}")
@@ -296,7 +326,7 @@ def cmd_test(args) -> int:
         print("No SKILL.md files found.")
         return 3
     rep = smoke_test(skills, env, run=args.run)
-    if getattr(args, "json", ""):
+    if args.json:
         Path(args.json).write_text(json.dumps({
             "run": bool(args.run), "counts": rep.counts(),
             "results": [{"skill": r.skill, "line": r.line, "command": r.command,
@@ -336,7 +366,7 @@ def cmd_watch(args) -> int:
         print("No SKILL.md files found.")
         return 3
     results = watch_all(skills)
-    if getattr(args, "json", ""):
+    if args.json:
         Path(args.json).write_text(json.dumps({
             "results": [{"skill": r.skill, "workspace": str(r.workspace),
                          "status": r.status, "detail": r.detail,
@@ -360,7 +390,9 @@ def cmd_watch(args) -> int:
     if drifted:
         print(c(f"\n  {len(drifted)} skill(s) reference files that changed since "
                 "verification - re-review those sections", "warn"))
-    return 1 if any(r.status in ("drifted", "missing") and r.changed_refs for r in results) else 0
+    return 1 if any(r.status == "missing"
+                    or (r.status == "drifted" and r.changed_refs)
+                    for r in results) else 0
 
 
 def cmd_coverage(args) -> int:
@@ -376,7 +408,7 @@ def cmd_coverage(args) -> int:
         if not ok:
             client = None
     rep = coverage(skills, client)
-    if getattr(args, "json", ""):
+    if args.json:
         Path(args.json).write_text(json.dumps({
             "skills": len(skills), "embed": rep.embed_note,
             "no_trigger": rep.no_trigger,
@@ -477,11 +509,18 @@ def main(argv=None) -> int:
     p.add_argument("--host", default=DEFAULT_HOST)
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    # SUPPRESS defaults so a subparser flag that isn't given keeps the
+    # top-level value - lets `--model` work before OR after the subcommand
+    def add_model(sp):
+        sp.add_argument("--model", default=argparse.SUPPRESS)
+        sp.add_argument("--host", default=argparse.SUPPRESS)
+
     def add_common(sp):
         sp.add_argument("paths", nargs="*", default=[],
                         help="skills roots / skill dirs / SKILL.md files (default: auto-discover)")
         sp.add_argument("--no-semantic", action="store_true",
                         help="skip the open-weight model pass (structural only)")
+        add_model(sp)
 
     sp = sub.add_parser("scan", help="audit skills and write a fix plan")
     add_common(sp)
@@ -514,7 +553,8 @@ def main(argv=None) -> int:
     sp = sub.add_parser("tailor", help="adapt skills to this environment (or --for a platform)")
     sp.add_argument("paths", nargs="*", default=[])
     sp.add_argument("--for", dest="target", default=None,
-                    help="target platform root name: claude|agents|devin|codex|cursor")
+                    choices=["claude", "agents", "devin", "codex", "cursor", "windsurf"],
+                    help="target platform root name")
     sp.add_argument("--plan", default="tailor-plan.json")
     sp.set_defaults(func=cmd_tailor)
 
@@ -533,6 +573,7 @@ def main(argv=None) -> int:
     sp = sub.add_parser("coverage", help="routing/intent map of the library")
     sp.add_argument("paths", nargs="*", default=[])
     sp.add_argument("--no-semantic", action="store_true")
+    add_model(sp)
     sp.add_argument("--json", default="", help="write results to FILE")
     sp.set_defaults(func=cmd_coverage)
 
@@ -543,7 +584,7 @@ def main(argv=None) -> int:
     sp = sub.add_parser("adopt", help="stamp metadata.workspace + verified_at for watch")
     sp.add_argument("paths", nargs="*", default=[])
     sp.add_argument("--workspace", default="",
-                    help="repo path the skill monitors (repeatable skill-wide)")
+                    help="repo path the skills monitor (single value applied to all)")
     sp.add_argument("--detect", action="store_true",
                     help="guess each skill's workspace from its referenced files' git roots")
     sp.add_argument("--yes", action="store_true",
@@ -553,13 +594,11 @@ def main(argv=None) -> int:
     sp = sub.add_parser("diff", help="compare health vs a saved baseline")
     sp.add_argument("baseline", help="file written by `scan --save-baseline`")
     sp.add_argument("paths", nargs="*", default=[])
-    sp.add_argument("--model", default=DEFAULT_MODEL)
-    sp.add_argument("--host", default=DEFAULT_HOST)
+    add_model(sp)
     sp.set_defaults(func=cmd_diff)
 
     sp = sub.add_parser("doctor", help="check surgeon's own runtime prerequisites")
-    sp.add_argument("--model", default=DEFAULT_MODEL)
-    sp.add_argument("--host", default=DEFAULT_HOST)
+    add_model(sp)
     sp.set_defaults(func=cmd_doctor)
 
     args = p.parse_args(argv)

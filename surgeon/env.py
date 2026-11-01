@@ -53,6 +53,9 @@ class Environment:
         for conv in ("agents", "claude", "devin", "codex", "cursor", "windsurf"):
             if f".{conv}" in parts:
                 return conv
+        # discover() also accepts a bare `agents/skills` root (no dot)
+        if "agents" in parts and "skills" in parts:
+            return "agents"
         return None
 
 

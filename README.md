@@ -50,8 +50,12 @@ read before saying yes.
 ## It does more than lint
 
 ```bash
+surgeon scan     # audit + write a fix plan (surgery-plan.json)
+surgeon fix      # interactive approve/apply, then re-scan
+surgeon apply    # apply chosen fix ids from a plan file non-interactively
+surgeon rules    # list every check (S001-S012, Q001-Q002, T001-T006)
 surgeon tailor   # rewrites skills to fit YOUR machine (paths, interpreters, tools)
-surgeon test     # runs the commands a skill documents - finds dead instructions
+surgeon test     # static checks on documented commands; --run executes sandboxed
 surgeon watch    # alerts when the repo a skill describes drifts out from under it
 surgeon adopt    # declares what a skill monitors so watch can track it
 surgeon coverage # maps which requests your library can and can't handle

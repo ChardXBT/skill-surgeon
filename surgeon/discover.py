@@ -12,7 +12,7 @@ MAX_DEPTH = 6
 
 DEFAULT_ROOT_NAMES = (
     ".agents/skills", ".claude/skills", ".devin/skills",
-    ".codex/skills", ".cursor/skills", "agents/skills",
+    ".codex/skills", ".cursor/skills", ".windsurf/skills", "agents/skills",
 )
 
 

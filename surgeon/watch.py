@@ -8,7 +8,7 @@ reports which referenced files changed since - the skills most likely stale.
 
 from __future__ import annotations
 
-import re
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -25,7 +25,7 @@ class WatchResult:
     workspace: Path
     status: str        # fresh | drifted | untracked | not_git | missing
     changed_refs: list[str] = field(default_factory=list)
-    commits: int = 0
+    files_changed: int = 0
     detail: str = ""
 
 
@@ -84,8 +84,12 @@ def watch_skill(skill: Skill) -> list[WatchResult]:
             continue
         rc, _ = _git(ws, "rev-parse", "--git-dir")
         if rc != 0:
-            res.status = "not_git"
-            res.detail = "workspace is not a git repo; drift cannot be tracked"
+            if shutil.which(GIT) is None:
+                res.status = "untracked"
+                res.detail = "git is not on PATH; drift cannot be tracked"
+            else:
+                res.status = "not_git"
+                res.detail = "workspace is not a git repo; drift cannot be tracked"
             out.append(res)
             continue
 
@@ -104,7 +108,7 @@ def watch_skill(skill: Skill) -> list[WatchResult]:
             continue
 
         res.status = "drifted"
-        res.commits = len(set(files))
+        res.files_changed = len(set(files))
         # strongest signal: files the skill actually references moved
         touched = [f for f in files
                    if f in refs or Path(f).name in {Path(r).name for r in refs}]

@@ -33,12 +33,14 @@ def _desc_span(skill: Skill) -> tuple[int, int] | None:
 
 
 def _replace_line_fix(skill: Skill, rule: str, span: tuple[int, int],
-                      new_text: str, rationale: str, auto: bool = True) -> Fix:
+                      new_text: str, rationale: str, auto: bool = True,
+                      confidence: str = "safe") -> Fix:
     lines = _skill_lines(skill)
     start, end = span
     return Fix(id=_id(), skill=skill.slug, rule=rule, kind="replace_text",
                file=str(skill.path), find="\n".join(lines[start:end]),
-               replace=new_text, rationale=rationale, auto=auto)
+               replace=new_text, rationale=rationale, auto=auto,
+               confidence=confidence)
 
 
 def _set_frontmatter_field_fix(skill: Skill, rule: str, key: str,
@@ -77,20 +79,24 @@ def _insert_frontmatter_field_fix(skill: Skill, rule: str, key: str,
 def fixes_for_findings(skills: list[Skill], findings: list[Finding],
                        client: OllamaClient | None) -> list[Fix]:
     _ctr[0] = 0
-    by_slug = {s.slug: s for s in skills}
+    # key by path, not slug: duplicate-named skills (the S009 case) must each
+    # get their own fixes - a slug map would collapse them onto the last copy
+    by_path = {str(s.path): s for s in skills}
     fixes: list[Fix] = []
+    redacted: set[str] = set()
 
     for f in findings:
-        s = by_slug.get(f.skill)
+        s = by_path.get(str(f.file))
         if s is None or not f.fixable:
             continue
 
         if f.rule == "S003":  # name != dir
-            fix = _set_frontmatter_field_fix(
-                s, "S003", "name", s.dir.name,
-                f"rename field to match directory `{s.dir.name}` (alternative: rename the dir)")
-            if fix:
-                fixes.append(fix)
+            if NAME_RE.match(s.dir.name):  # else the "fix" creates an S002 violation
+                fix = _set_frontmatter_field_fix(
+                    s, "S003", "name", s.dir.name,
+                    f"rename field to match directory `{s.dir.name}` (alternative: rename the dir)")
+                if fix:
+                    fixes.append(fix)
 
         elif f.rule == "S004":  # missing description
             drafted = draft_description(client, s) if client else None
@@ -100,7 +106,6 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
                     "drafted by local model from skill body - review before applying")
                 if fix:
                     fix.confidence = "review"
-                if fix:
                     fixes.append(fix)
 
         elif f.rule == "S005":  # description too long
@@ -123,9 +128,11 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
                         raw_at = s.raw.split("\n")[f.line - 1]
                     except IndexError:
                         continue
+                    # bare ref as find: the dead ref also appears inside
+                    # [text](ref) markdown links, where a `ref` find misses
                     fixes.append(Fix(
                         id=_id(), skill=s.slug, rule="S007", kind="replace_text",
-                        file=str(s.path), find=f"`{dead}`", replace=f"`{close}`",
+                        file=str(s.path), find=dead, replace=close,
                         rationale=f"dead ref `{dead}` -> closest existing file `{close}` "
                                   f"(line: {raw_at.strip()[:80]})",
                         confidence="review"))
@@ -154,13 +161,17 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
             from .rules_structural import SECRET_PATTERNS, PLACEHOLDER_HINTS
             literal = ""
             for rx, _label in SECRET_PATTERNS:
-                m = rx.search(s.raw)
-                if m:
+                for m in rx.finditer(s.raw):
                     val = m.group(1) if m.lastindex else m.group(0)
-                    if not any(h in val.lower() for h in PLACEHOLDER_HINTS):
+                    if any(h in val.lower() for h in PLACEHOLDER_HINTS):
+                        continue
+                    if val not in redacted:   # pick the literal THIS finding is about
                         literal = val
                         break
+                if literal:
+                    break
             if literal:
+                redacted.add(literal)
                 fixes.append(Fix(
                     id=_id(), skill=s.slug, rule="S010", kind="replace_text",
                     file=str(s.path), find=literal, replace="<redacted>",
@@ -178,22 +189,25 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
                         fixes.append(fix)
 
         elif f.rule == "S009":  # duplicates -> manual merge proposal
-            others = [x for x in f.message.split(":", 1)[-1].split(";") if s.path.as_posix() not in x]
+            self_posix = s.path.as_posix()
+            others = [x for x in f.message.split(":", 1)[-1].split(";")
+                      if self_posix not in x.replace("\\", "/")]
             fixes.append(Fix(
                 id=_id(), skill=s.slug, rule="S009", kind="manual",
                 file=str(s.path), auto=False,
                 rationale=f"duplicate name `{s.slug}` across roots. Pick one canonical "
                           f"location (prefer {s.root}), merge unique content there, then "
-                          f"retire the shadow copy. Other locations:{''.join(others)}"),
-                confidence="review")
+                          f"retire the shadow copy. Other locations:{''.join(others)}",
+                confidence="review"))
 
     return fixes
 
 
-def fixes_for_semantic(skills: list[Skill], analysis: dict,
-                       start_after: int) -> tuple[list[Fix], list[Finding]]:
+def fixes_for_semantic(skills: list[Skill], analysis: dict) -> tuple[list[Fix], list[Finding]]:
     """Collision + weak-description findings, and rewrite fixes."""
-    by_slug = {s.slug: s for s in skills}
+    by_slug: dict[str, Skill] = {}
+    for s in skills:
+        by_slug.setdefault(s.slug, s)   # first copy wins on duplicate names
     fixes: list[Fix] = []
     findings: list[Finding] = []
 
@@ -202,8 +216,6 @@ def fixes_for_semantic(skills: list[Skill], analysis: dict,
         if a not in by_slug or b not in by_slug:
             continue
         conf = col.get("confidence", "medium")
-        msg = (f"trigger collision with `{b}` ({conf}): {col.get('reason', '')}"
-               if True else "")
         findings.append(Finding("Q001", "warn" if conf != "high" else "error",
                                 a, by_slug[a].path,
                                 f"trigger collision with `{b}` ({conf}): {col.get('reason','')}"))

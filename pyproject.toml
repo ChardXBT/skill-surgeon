@@ -9,7 +9,22 @@ description = "Audit agent skills, propose repairs, apply them after operator ap
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.9"
+keywords = ["agent-skills", "lint", "audit", "claude-code", "ai-agents"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Quality Assurance",
+]
 dependencies = []
+
+[project.optional-dependencies]
+yaml = ["pyyaml>=6"]   # strict frontmatter parse; lenient fallback works without it
+
+[project.urls]
+Homepage = "https://github.com/ChardXBT/skill-surgeon"
 
 [project.scripts]
 surgeon = "surgeon.cli:main"
