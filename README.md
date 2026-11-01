@@ -61,7 +61,8 @@ surgeon badge    # README score badge: ![skill-surgeon](...93/100...)
 ```
 
 Every proposed fix also carries a confidence label - deterministic rewrites
-are marked safe; fuzzy or model-guessed targets are flagged for a hard look.
+are marked safe; fuzzy, ambiguous, denylist-context, or model-guessed targets
+are flagged for a hard look and are never auto-applied.
 And `test --run` scrubs API keys from the environment before anything
 executes, so a skill's script can't read your credentials.
 
