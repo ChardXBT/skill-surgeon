@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,7 +25,8 @@ from .tailor import _commands
 
 # never executed, even with --run
 NEVER_RUN = re.compile(
-    r"(?:^|\s|&&|\|\|)(rm|del|rmdir|sudo|curl|wget|chmod|chown|dd|mkfs|"
+    r"(?:^|\s|&&|\|\|)(rm|del|rmdir|rd|erase|Remove-Item|Move-Item|Copy-Item|"
+    r"sudo|curl|wget|chmod|chown|dd|mkfs|"
     r"shutdown|reboot|mv|move|copy|cp|scp|ssh|scp|git\s+push|pip\s+install|"
     r"npm\s+install|apt|brew)\b|>\s*/|>>")
 
@@ -35,7 +38,22 @@ _SECRET_ENV_RE = re.compile(
 def _scrubbed_env() -> dict:
     """os.environ minus secret-looking variables (values stay on this host)."""
     return {k: v for k, v in os.environ.items() if not _SECRET_ENV_RE.search(k)}
-SCRIPT_EXT = {".py", ".sh", ".ps1", ".js", ".ts", ".bash", ".rb"}
+
+
+SCRIPT_EXT = {".py", ".sh", ".ps1", ".js", ".mjs", ".cjs", ".ts", ".bash", ".rb"}
+
+# Ways a skill spells "the directory containing this SKILL.md". A script
+# under one of these is a bundled file and is checked against the skill dir.
+SKILL_DIR_TOKEN_RE = re.compile(
+    r"^(?:<(?:skill[-_ ]?(?:path|dir|root|base[-_ ]?dir)|path[-_ ]to[-_ ]skill"
+    r"|this[-_ ]skill(?:[-_ ]dir)?)>"
+    r"|\$\{?(?:SKILL_DIR|SKILL_ROOT|CLAUDE_SKILL_DIR|CLAUDE_SKILL_ROOT|"
+    r"CODEX_SKILL_ROOT)\}?"
+    r"|\{baseDir\})[\\/]", re.I)
+
+# interpreters whose first positional argument is the script they execute
+_SCRIPT_RUNNERS = {"python", "python3", "py", "node", "bash", "sh", "zsh",
+                   "ruby", "deno", "bun", "tsx", "ts-node"}
 
 
 @dataclass
@@ -43,7 +61,7 @@ class CmdResult:
     skill: str
     line: int
     command: str
-    status: str          # ok | missing_file | missing_interp | syntax_fail | crashed | unsafe_skipped | timeout
+    status: str          # ok | missing_file | missing_interp | syntax_fail | crashed | unsafe_skipped | timeout | unverified
     detail: str = ""
 
 
@@ -58,46 +76,123 @@ class SmokeReport:
         return c
 
 
+def _strip_comment(cmd: str) -> str:
+    """Drop a trailing shell comment (` # note`) - not part of the command."""
+    return re.split(r"\s+#\s", cmd, maxsplit=1)[0].rstrip(" \\")
+
+
+def _tokens(cmd: str) -> list[str]:
+    try:
+        return shlex.split(cmd, posix=True)
+    except ValueError:            # unbalanced quotes in a doc snippet
+        return cmd.split()
+
+
 def _invoked_files(cmd: str) -> list[str]:
-    """Local-looking file args in a command line."""
-    out = []
-    for tok in cmd.split():
-        tok = tok.strip("'\"")
-        if tok.startswith("-") or "://" in tok:
-            continue
-        if Path(tok).suffix.lower() in SCRIPT_EXT:
-            out.append(tok.removeprefix("./").removeprefix(".\\"))
-    return out
+    """The script file a command line executes - not every argument that
+    happens to end in `.py` (`-p test_*.py`, data files, comment text).
+
+    `python -m mod` / `python -c code` run no file; `powershell -File x.ps1`
+    names its script after `-File`; `./x.sh` runs itself."""
+    toks = _tokens(_strip_comment(cmd))
+    if not toks:
+        return []
+    first = toks[0]
+    if first.startswith(("./", ".\\")):
+        return [first[2:]] if Path(first).suffix.lower() in SCRIPT_EXT else []
+    name = Path(first).name.lower().removesuffix(".exe")
+    rest = toks[1:]
+    if name in ("powershell", "pwsh"):
+        for i, t in enumerate(rest[:-1]):
+            if t.lower() in ("-file", "-f"):
+                return [rest[i + 1]]
+        return []
+    if name in ("deno", "bun") and rest[:1] == ["run"]:
+        rest = rest[1:]
+    elif name == "uv" and rest[:1] == ["run"]:
+        rest = rest[1:]
+    elif name not in _SCRIPT_RUNNERS:
+        return []
+    for t in rest:
+        if t in ("-m", "-c", "-e", "--eval"):
+            return []             # module / inline code - no script file
+        if t.startswith("-"):
+            continue              # interpreter option (py -3.12, node --inspect)
+        if Path(t).suffix.lower() in SCRIPT_EXT:
+            return [t.removeprefix("./").removeprefix(".\\")]
+        return []                 # first positional isn't a script path
+    return []
+
+
+def _resolve_script(skill: Skill, ref: str) -> tuple[Path | None, bool]:
+    """(path-if-found, checkable). A skill-dir placeholder resolves against
+    the skill dir; other placeholders (`<repo>/x.py`, `$HOME/x.py`) can't be
+    checked statically. Plain relative paths are tried from the skill dir up
+    through its ancestors to just above the scan root (a library-relative
+    command like `python tools/x.py` runs from the repo root), then from any
+    declared workspace."""
+    m = SKILL_DIR_TOKEN_RE.match(ref)
+    if m:
+        p = skill.dir / ref[m.end():]
+        return (p if p.exists() else None), True
+    if re.search(r"[<>$%{}]|^~", ref):
+        return None, False
+    p = Path(ref)
+    if p.is_absolute():
+        return (p if p.exists() else None), True
+    bases: list[Path] = []
+    d = skill.dir
+    while True:
+        bases.append(d)
+        if d == skill.root.parent or d.parent == d:
+            break
+        d = d.parent
+    meta = skill.meta.get("metadata")
+    meta = meta if isinstance(meta, dict) else {}
+    ws = skill.meta.get("workspace") or meta.get("workspace")
+    for w in (ws if isinstance(ws, list) else [ws]):
+        if isinstance(w, str) and w:
+            wp = Path(w).expanduser()
+            bases.append(wp if wp.is_absolute() else skill.dir / wp)
+    for b in bases:
+        if (b / ref).exists():
+            return (b / ref), True
+    return None, True
 
 
 def check_command(skill: Skill, line: int, cmd: str,
                   env: Environment, run: bool) -> CmdResult:
     first = cmd.split()[0]
 
-    if first in ("python3", "python", "py", "node", "bash", "sh", "uv",
-                 "pwsh", "powershell", "npm", "pip", "pip3", "deno", "bun"):
-        if not env.has(first):
-            return CmdResult(skill.slug, line, cmd, "missing_interp",
-                             f"`{first}` not on PATH")
-    elif first.startswith("./"):
+    if first.startswith(("./", ".\\")):
         pass  # direct script invocation; file check below covers it
-    else:
-        if not env.has(first):
-            return CmdResult(skill.slug, line, cmd, "missing_interp",
-                             f"`{first}` not found on PATH")
+    elif not env.has(first) and not shutil.which(first):
+        # env.has covers the probed interpreters/CLIs (and rejects Store
+        # stubs); which() covers everything else actually on PATH
+        return CmdResult(skill.slug, line, cmd, "missing_interp",
+                         f"`{first}` not on PATH")
+    elif first in env.interpreters and not env.has(first):
+        return CmdResult(skill.slug, line, cmd, "missing_interp",
+                         f"`{first}` is on PATH but does not run (stub?)")
 
-    missing = [f for f in _invoked_files(cmd)
-               if not (skill.dir / f).resolve().exists()]
-    if missing:
-        return CmdResult(skill.slug, line, cmd, "missing_file",
-                         f"not found: {', '.join(missing)}")
+    scripts = _invoked_files(cmd)
+    resolved: list[Path] = []
+    for f in scripts:
+        path, checkable = _resolve_script(skill, f)
+        if not checkable:
+            return CmdResult(skill.slug, line, cmd, "unverified",
+                             f"placeholder path not checked: {f}")
+        if path is None:
+            return CmdResult(skill.slug, line, cmd, "missing_file",
+                             f"not found: {f}")
+        resolved.append(path)
 
-    # static compile check for python scripts we can see
-    for f in _invoked_files(cmd):
-        fp = skill.dir / f
-        if fp.suffix == ".py" and fp.exists():
+    # static compile check for python scripts we can see - with this very
+    # interpreter, which is known to work (PATH `python` may be a stub)
+    for fp in resolved:
+        if fp.suffix == ".py" and fp.is_file():
             r = subprocess.run(
-                [env.python_cmd() or "python", "-m", "py_compile", str(fp)],
+                [sys.executable, "-m", "py_compile", str(fp)],
                 capture_output=True, text=True, timeout=15)
             if r.returncode != 0:
                 return CmdResult(skill.slug, line, cmd, "syntax_fail",
@@ -133,7 +228,7 @@ def smoke_test(skills: list[Skill], env: Environment, run: bool) -> SmokeReport:
     rep = SmokeReport()
     for s in skills:
         seen: set[str] = set()
-        for line, cmd in _commands(s.body):
+        for line, cmd in _commands(s.body, s.body_offset):
             if cmd in seen:
                 continue
             seen.add(cmd)

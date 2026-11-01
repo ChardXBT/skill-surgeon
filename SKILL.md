@@ -20,7 +20,7 @@ The engine is the Python package beside this file:
 
 ## Procedure
 
-1. **Discover roots.** If the user gives paths, use them. Otherwise auto-discovery covers `.agents/skills`, `.claude/skills`, `.devin/skills`, `.codex/skills`, `.cursor/skills` under the cwd and the home directory. Scan ALL roots the user cares about so duplicate-name checks see everything.
+1. **Discover roots.** If the user gives paths, use them. Otherwise auto-discovery covers `.agents/skills`, `.claude/skills`, `.devin/skills`, `.codex/skills`, `.cursor/skills` under the cwd and the home directory. Scan ALL roots the user cares about so duplicate-name checks see everything. SKILL.md files under `vendor/` (also `vendored/`, `third_party/`) below a scanned tree are upstream reference copies: they are skipped and counted in the report; `--include-vendored` scans them.
 2. **Scan + plan:**
    `python -m surgeon scan <roots...> --plan surgery-plan.json --md report.md`
    Review the terminal report. Read `surgery-plan.json` - each fix carries exact `find`/`replace` strings.
@@ -44,13 +44,13 @@ The engine is the Python package beside this file:
 |---|---|
 | `scan [paths]` | Audit, print report, write `surgery-plan.json`, optional `--md`/`--json`/`--ci` |
 | `fix [paths]` | Scan then interactively approve/apply in the terminal |
-| `apply` | Apply chosen fix ids from a plan file (`--ids` / `--all` / `--safe-only` for deterministic fixes only) |
+| `apply` | Apply chosen fix ids from a plan file (`--ids` / `--all` / `--safe-only` for deterministic fixes only; `--log FILE` for the decision log). Held or unknown ids are reported by id |
 | `tailor [paths]` | Find host-environment mismatches (.claude paths, `python3`, POSIX tools) and propose rewrites; `--for <platform>` ports conventions |
-| `test [paths]` | Smoke-test documented commands: interpreter present, file exists, compiles; `--run` executes behind a denylist with secrets scrubbed from env |
+| `test [paths]` | Smoke-test documented commands: interpreter present, executed script exists, compiles; `<skill-path>/`-style placeholders resolve to the skill dir, other placeholders report `UNVER`; `--run` executes behind a denylist with secrets scrubbed from env |
 | `watch [paths]` | Flag skills whose declared `metadata.workspace` repos changed since `metadata.verified_at` |
 | `adopt [paths]` | Stamp `metadata.workspace` + `verified_at` so `watch` has a baseline; `--yes` writes, `--detect` guesses the repo from referenced files' git roots |
 | `doctor` | Check surgeon's own runtime: python version, Ollama, embed model, PATH entry |
-| `coverage [paths]` | Routing map: skills without trigger phrasing, description overlap (local embeddings when available, token overlap otherwise), uncovered intents |
+| `coverage [paths]` | Routing map: skills without trigger phrasing (nested family sub-skills listed separately), description overlap (local embeddings when available, token overlap otherwise), uncovered intents |
 | `diff <baseline> [paths]` | Compare current health to a `scan --save-baseline` snapshot: new / resolved / unchanged findings and score delta |
 | `badge [paths]` | Print a README score badge |
 | `rules` | List all rule ids and what they check |
@@ -62,7 +62,8 @@ Exit codes: `0` clean/warnings, `1` errors present, `3` usage/IO error - usable 
 - **Tailor before trusting**: a skill authored for another platform fails in ways a scan can't see; run `tailor` on newly installed skills, and `test --run` when behavior matters.
 - **Adopt to enable watch**: `watch` needs `metadata.workspace` + `verified_at`; `adopt --yes` stamps today after a clean scan, `adopt --workspace <repo>` declares the repo it monitors.
 - **Diff proves direction**: `scan --save-baseline s.json` once, then `diff s.json` shows whether the library is getting healthier or decaying.
-- **Confidence labels**: fixes tagged `[review]` use fuzzy or model-guessed targets - look at those diffs hard; the rest are deterministic rewrites.
+- **Confidence labels**: fixes tagged `[review]` use fuzzy, ambiguous, or model-guessed targets - look at those diffs hard; the rest are deterministic rewrites. Fuzzy targets, skill renames (S003/S012), and duplicate merges (S009) are never auto-applied. Literals inside a denylist section ("never include", "out of scope") are not treated as references; such paths report as info with no fix.
+- **Runtime refs aren't dead refs**: files a skill writes, reads, or checks in its target project or declared `metadata.workspace` are not flagged as missing bundled files; workspace refs on unmounted machines report as *unverified* warnings, not errors.
 - **Coverage maps routing**: a skill with no "use when" phrasing may never fire; overlap pairs predict router confusion (embedding-based when `nomic-embed-text` is pulled).
 
 ## What the checks mean

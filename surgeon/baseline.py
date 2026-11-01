@@ -25,6 +25,10 @@ def _signature(f: Finding) -> str:
     """
     msg = re.sub(r"line \d+", "line", f.message)        # mask line numbers
     msg = re.sub(r"[A-Za-z]:[\\/]\S+", "<abspath>", msg)  # mask abs prefixes
+    if f.rule in ("S005", "S006"):
+        # size findings restate a measurement ("~5791 tokens"); a one-word
+        # edit must not read as one resolved + one new finding
+        msg = re.sub(r"\d+", "N", msg)
     msg = re.sub(r"\s+", " ", msg).strip()
     return f"{f.rule}|{f.skill}|{msg[:120]}"
 
@@ -49,8 +53,15 @@ def diff_baseline(baseline_path: Path, report: Report) -> dict:
         old = json.loads(baseline_path.read_text(encoding="utf-8"))
     except Exception as e:
         raise SystemExit(f"cannot read baseline {baseline_path}: {e}")
-    old_find = old.get("findings", [])
-    old_sig = {d["sig"]: d for d in old_find}
+    if not isinstance(old, dict) or not isinstance(old.get("findings"), list):
+        raise SystemExit(f"{baseline_path} is not a surgeon baseline "
+                         "(write one with `scan --save-baseline FILE`)")
+    old_find = [d for d in old["findings"] if isinstance(d, dict)]
+    # `scan --json` reports carry rule/skill/message but no precomputed
+    # signature - derive it the same way so they work as baselines too
+    old_sig = {d.get("sig") or _signature(Finding(
+        d.get("rule", ""), d.get("severity", ""), d.get("skill", ""),
+        Path(d.get("file", "")), d.get("message", ""))): d for d in old_find}
     now_sig = {_signature(f): f for f in report.findings}
 
     new = [f for sig, f in now_sig.items() if sig not in old_sig]

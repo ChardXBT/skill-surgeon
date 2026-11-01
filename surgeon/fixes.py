@@ -6,12 +6,15 @@ it is mechanical and the operator reviews a precise diff - never a vague idea.
 
 from __future__ import annotations
 
+import json
 import re
+from collections import Counter
 from pathlib import Path
 
 from .frontmatter import description_block
 from .model import Finding, Fix, Skill
-from .rules_structural import DATE_SUFFIX_RE, NAME_RE, closest_existing
+from .rules_structural import (DATE_SUFFIX_RE, DENYLIST_CONTEXT_RE,  # noqa: F401
+                               NAME_RE, closest_existing, in_denylist_context)
 from .semantic import OllamaClient, condense_description, draft_description
 
 _ctr = [0]
@@ -22,8 +25,59 @@ def _id() -> str:
     return f"F-{_ctr[0]:03d}"
 
 
+# Shared with the structural rules: a literal inside a "never include /
+# banned / out of scope" section is a denylist entry, not a path to port.
+_denylist_context = in_denylist_context
+
+
+def _dedup(fixes: list[Fix]) -> list[Fix]:
+    seen: set[tuple] = set()
+    out: list[Fix] = []
+    for fx in fixes:
+        key = (fx.file, fx.find, fx.replace, fx.rule)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(fx)
+    return out
+
+
 def _skill_lines(skill: Skill) -> list[str]:
     return skill.raw.split("\n")
+
+
+_YAML_UNSAFE_START = tuple("-?:,[]{}#&*!|>'\"%@`")
+
+
+def _yaml_scalar(text: str) -> str:
+    """A one-line YAML value for model-written text. Plain when that parses
+    back verbatim, else a double-quoted (JSON) string: an unquoted
+    `Use when: ...` would turn the description into a parse error."""
+    text = " ".join(str(text).split())
+    if (not text or text.startswith(_YAML_UNSAFE_START) or ": " in text
+            or " #" in text or text.endswith(":")
+            or text.lower() in ("true", "false", "null", "yes", "no", "~")):
+        return json.dumps(text, ensure_ascii=False)
+    return text
+
+
+def _ref_token(line: str, dead: str, close: str) -> tuple[str, str] | None:
+    """The exact (find, replace) pair for a dead ref as written on `line`.
+
+    The finding's ref is normalized (`\\` -> `/`, `#anchor` and `:LINE`
+    stripped), so the raw text may differ: a markdown link `](ref)`, a
+    backslash path, or a cited line `ref:12`. Returns None when the token
+    can't be located - better no fix than a find string that never matches.
+    """
+    for ref in (dead, dead.replace("/", "\\")):
+        if f"`{ref}`" in line:
+            return f"`{ref}`", f"`{close}`"
+        for opener in ("](", "`"):
+            for closer in (")", "#", ":", " "):
+                tok = f"{opener}{ref}{closer}"
+                if tok in line:
+                    return tok, f"{opener}{close}{closer}"
+    return None
 
 
 def _desc_span(skill: Skill) -> tuple[int, int] | None:
@@ -33,12 +87,14 @@ def _desc_span(skill: Skill) -> tuple[int, int] | None:
 
 
 def _replace_line_fix(skill: Skill, rule: str, span: tuple[int, int],
-                      new_text: str, rationale: str, auto: bool = True) -> Fix:
+                      new_text: str, rationale: str, auto: bool = True,
+                      confidence: str = "safe") -> Fix:
     lines = _skill_lines(skill)
     start, end = span
     return Fix(id=_id(), skill=skill.slug, rule=rule, kind="replace_text",
                file=str(skill.path), find="\n".join(lines[start:end]),
-               replace=new_text, rationale=rationale, auto=auto)
+               replace=new_text, rationale=rationale, auto=auto,
+               confidence=confidence)
 
 
 def _set_frontmatter_field_fix(skill: Skill, rule: str, key: str,
@@ -77,11 +133,15 @@ def _insert_frontmatter_field_fix(skill: Skill, rule: str, key: str,
 def fixes_for_findings(skills: list[Skill], findings: list[Finding],
                        client: OllamaClient | None) -> list[Fix]:
     _ctr[0] = 0
+    # Variants share a skill name, so slug maps collapse them onto one file.
+    # Findings carry the file path - key on that first, fall back to slug.
+    by_path = {str(s.path): s for s in skills}
     by_slug = {s.slug: s for s in skills}
     fixes: list[Fix] = []
+    s009_done: set[str | None] = set()
 
     for f in findings:
-        s = by_slug.get(f.skill)
+        s = by_path.get(str(f.file)) or by_slug.get(f.skill)
         if s is None or not f.fixable:
             continue
 
@@ -90,13 +150,17 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
                 s, "S003", "name", s.dir.name,
                 f"rename field to match directory `{s.dir.name}` (alternative: rename the dir)")
             if fix:
+                # Either side could be canonical (dir names are often arbitrary
+                # clone names) - the operator picks the direction, never auto.
+                fix.auto = False
+                fix.confidence = "review"
                 fixes.append(fix)
 
         elif f.rule == "S004":  # missing description
             drafted = draft_description(client, s) if client else None
             if drafted:
                 fix = _insert_frontmatter_field_fix(
-                    s, "S004", "description", drafted,
+                    s, "S004", "description", _yaml_scalar(drafted),
                     "drafted by local model from skill body - review before applying")
                 if fix:
                     fix.confidence = "review"
@@ -109,26 +173,34 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
                 span = _desc_span(s)
                 if short and span:
                     fixes.append(_replace_line_fix(
-                        s, "S005", span, f"description: {short}",
+                        s, "S005", span, f"description: {_yaml_scalar(short)}",
                         f"condensed {len(s.description or '')} -> {len(short)} chars by local model",
                         confidence="review"))
 
-        elif f.rule == "S007":  # dead reference -> fuzzy match
+        elif f.rule == "S007":  # dead reference -> closest real file
             m = re.search(r"`([^`]+)`", f.message)
             if m:
                 dead = m.group(1)
-                close = closest_existing(dead, s)
+                close, quality = closest_existing(dead, s)
                 if close:
                     try:
                         raw_at = s.raw.split("\n")[f.line - 1]
                     except IndexError:
                         continue
+                    pair = _ref_token(raw_at, dead, close)
+                    if not pair:
+                        continue  # can't locate the exact token - no blind edit
+                    fuzzy = quality != "exact"
+                    safe = not fuzzy and not _denylist_context(s, f.line)
                     fixes.append(Fix(
-                        id=_id(), skill=s.slug, rule="S007", kind="replace_text",
-                        file=str(s.path), find=f"`{dead}`", replace=f"`{close}`",
-                        rationale=f"dead ref `{dead}` -> closest existing file `{close}` "
-                                  f"(line: {raw_at.strip()[:80]})",
-                        confidence="review"))
+                        id=_id(), skill=s.slug, rule="S007",
+                        kind="replace_text",
+                        file=str(s.path), find=pair[0], replace=pair[1],
+                        replace_all=True,
+                        rationale=(f"dead ref `{dead}` -> "
+                                   f"{'same-named file' if not fuzzy else quality + ' guess'} "
+                                   f"`{close}` (line: {raw_at.strip()[:80]})"),
+                        auto=safe, confidence="safe" if safe else "review"))
 
         elif f.rule == "S008":  # absolute path -> relative or placeholder
             m = re.search(r"`([^`]+)`", f.message)
@@ -145,21 +217,30 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
                     newref = ("~/" + "/".join(parts[anchor + 2:])) \
                         if anchor is not None and len(parts) > anchor + 2 \
                         else f"<path-to-{p.name}>"
+                deny = _denylist_context(s, f.line)
                 fixes.append(Fix(
                     id=_id(), skill=s.slug, rule="S008", kind="replace_text",
                     file=str(s.path), find=frag, replace=newref,
-                    rationale=f"portable replacement for machine-specific path `{frag}`"))
+                    rationale=f"portable replacement for machine-specific path `{frag}`"
+                              + (" - may be an intentional denylist literal, verify"
+                                 if deny else ""),
+                    auto=not deny, confidence="review" if deny else "safe"))
 
         elif f.rule == "S010":  # secret -> redact (literal never enters the report)
             from .rules_structural import SECRET_PATTERNS, PLACEHOLDER_HINTS
             literal = ""
+            # Take the literal from the finding's own line, so a skill with
+            # two secrets gets two redactions instead of the first one twice.
+            lines = s.raw.split("\n")
+            scope = lines[f.line - 1] if 0 < f.line <= len(lines) else s.raw
             for rx, _label in SECRET_PATTERNS:
-                m = rx.search(s.raw)
-                if m:
+                for m in rx.finditer(scope):
                     val = m.group(1) if m.lastindex else m.group(0)
                     if not any(h in val.lower() for h in PLACEHOLDER_HINTS):
                         literal = val
                         break
+                if literal:
+                    break
             if literal:
                 fixes.append(Fix(
                     id=_id(), skill=s.slug, rule="S010", kind="replace_text",
@@ -170,30 +251,48 @@ def fixes_for_findings(skills: list[Skill], findings: list[Finding],
             if s.name:
                 new_name = DATE_SUFFIX_RE.sub("", s.name)
                 if new_name and NAME_RE.match(new_name):
+                    note = (f"; NOTE: also rename the directory `{s.dir.name}` -> "
+                            f"`{new_name}` to stay spec-consistent"
+                            if s.dir.name != new_name else "")
                     fix = _set_frontmatter_field_fix(
                         s, "S012", "name", new_name,
-                        f"strip date suffix -> `{new_name}`; NOTE: also rename the "
-                        f"directory `{s.dir.name}` -> `{new_name}` to stay spec-consistent")
+                        f"strip date suffix -> `{new_name}`{note}. Renaming changes "
+                        "the skill's invocation name - callers using the old "
+                        "name break, so the operator decides")
                     if fix:
+                        # a rename is an identity change, not a mechanical
+                        # repair: never part of `apply --all`/`--safe-only`
+                        fix.auto = False
+                        fix.confidence = "review"
                         fixes.append(fix)
 
-        elif f.rule == "S009":  # duplicates -> manual merge proposal
-            others = [x for x in f.message.split(":", 1)[-1].split(";") if s.path.as_posix() not in x]
+        elif f.rule == "S009":  # duplicates -> one manual merge proposal per name
+            if s.name in s009_done:
+                continue
+            s009_done.add(s.name)
+            # Locations come from the discovered skills, not by parsing the
+            # finding message: Windows paths carry backslashes and drive
+            # colons that a string split cannot separate reliably.
+            group = [x for x in skills if x.name == s.name]
+            locs = "; ".join(str(x.path) for x in group)
             fixes.append(Fix(
                 id=_id(), skill=s.slug, rule="S009", kind="manual",
-                file=str(s.path), auto=False,
-                rationale=f"duplicate name `{s.slug}` across roots. Pick one canonical "
-                          f"location (prefer {s.root}), merge unique content there, then "
-                          f"retire the shadow copy. Other locations:{''.join(others)}"),
-                confidence="review")
+                file=str(s.path), auto=False, confidence="review",
+                rationale=f"duplicate name `{s.slug}` in {len(group)} locations with "
+                          f"differing content. Pick one canonical copy, merge any "
+                          f"unique content into it, then retire or re-sync the "
+                          f"others. Locations: {locs}"))
 
-    return fixes
+    return _dedup(fixes)
 
 
 def fixes_for_semantic(skills: list[Skill], analysis: dict,
                        start_after: int) -> tuple[list[Fix], list[Finding]]:
     """Collision + weak-description findings, and rewrite fixes."""
     by_slug = {s.slug: s for s in skills}
+    # Variants share a name: a slug that maps to >1 file is ambiguous, so any
+    # rewrite for it is review-only (an auto fix could hit the wrong variant).
+    slug_counts = Counter(s.slug for s in skills)
     fixes: list[Fix] = []
     findings: list[Finding] = []
 
@@ -216,10 +315,12 @@ def fixes_for_semantic(skills: list[Skill], analysis: dict,
             sug = col.get(sugkey)
             span = _desc_span(sk)
             if sug and span:
-                fixes.append(_replace_line_fix(
-                    sk, "Q001", span, f"description: {' '.join(str(sug).split())}",
+                fix = _replace_line_fix(
+                    sk, "Q001", span, f"description: {_yaml_scalar(sug)}",
                     f"sharpened to remove overlap with `{other.slug}`",
-                    confidence="review"))
+                    confidence="review")
+                fix.auto = slug_counts.get(sk.slug, 0) == 1
+                fixes.append(fix)
 
     for d in analysis.get("descriptions", []):
         sk = by_slug.get(d.get("name"))
@@ -230,10 +331,12 @@ def fixes_for_semantic(skills: list[Skill], analysis: dict,
                                 f"description quality {d.get('quality','?')}/10: {issues}"))
         sug, span = d.get("suggested"), _desc_span(sk)
         if sug and span:
-            fixes.append(_replace_line_fix(
+            fix = _replace_line_fix(
                 sk, "Q002", span,
-                f"description: {' '.join(str(sug).split())}",
+                f"description: {_yaml_scalar(sug)}",
                 f"local-model rewrite (quality {d.get('quality','?')}/10): {issues}",
-                confidence="review"))
+                confidence="review")
+            fix.auto = slug_counts.get(sk.slug, 0) == 1
+            fixes.append(fix)
 
     return fixes, findings

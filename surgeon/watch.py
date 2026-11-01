@@ -47,13 +47,32 @@ def _workspaces(skill: Skill) -> list[Path]:
 
 
 def _verified_at(skill: Skill) -> datetime:
+    return _baseline(skill)[0]
+
+
+def _baseline(skill: Skill) -> tuple[datetime, bool]:
+    """(verification time, stamped?). Without `verified_at` the SKILL.md
+    mtime stands in - a fresh checkout or copy resets it to today."""
     raw = skill.meta.get("verified_at") or _meta_map(skill).get("verified_at")
     if raw:
         try:
-            return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            return datetime.fromisoformat(str(raw).replace("Z", "+00:00")), True
         except ValueError:
             pass
-    return datetime.fromtimestamp(skill.path.stat().st_mtime, tz=timezone.utc)
+    return datetime.fromtimestamp(skill.path.stat().st_mtime, tz=timezone.utc), False
+
+
+def _ref_changed(path: str, refs: set[str]) -> bool:
+    """A changed workspace file matches a ref with a directory part only at
+    that path (or as its suffix); a bare-name ref matches by file name."""
+    for r in refs:
+        if "/" in r.strip("./"):
+            r = r.removeprefix("./")
+            if path == r or path.endswith("/" + r):
+                return True
+        elif Path(path).name == r:
+            return True
+    return False
 
 
 def _skill_refs(skill: Skill) -> set[str]:
@@ -73,7 +92,9 @@ def _git(ws: Path, *args: str) -> tuple[int, str]:
 
 def watch_skill(skill: Skill) -> list[WatchResult]:
     out: list[WatchResult] = []
-    verified = _verified_at(skill)
+    verified, stamped = _baseline(skill)
+    # without verified_at the baseline is only the file's mtime - say so
+    since = f"{verified.date()}" + ("" if stamped else ", SKILL.md mtime baseline")
     refs = _skill_refs(skill)
 
     for ws in _workspaces(skill):
@@ -97,20 +118,20 @@ def watch_skill(skill: Skill) -> list[WatchResult]:
             out.append(res)
             continue
 
-        files = [l.strip() for l in changed.split("\n") if l.strip()]
+        # one entry per commit that touched a file - dedupe, keep order
+        files = list(dict.fromkeys(l.strip() for l in changed.split("\n")
+                                   if l.strip()))
         if not files:
-            res.detail = f"no workspace commits since {verified.date()}"
+            res.detail = f"no workspace commits since verification ({since})"
             out.append(res)
             continue
 
         res.status = "drifted"
-        res.commits = len(set(files))
+        res.commits = len(files)
         # strongest signal: files the skill actually references moved
-        touched = [f for f in files
-                   if f in refs or Path(f).name in {Path(r).name for r in refs}]
+        touched = [f for f in files if _ref_changed(f, refs)]
         res.changed_refs = touched
-        res.detail = (f"{len(set(files))} files changed since verification "
-                      f"({verified.date()})")
+        res.detail = f"{len(files)} files changed since verification ({since})"
         if touched:
             res.detail += f" - referenced files changed: {', '.join(touched[:5])}"
         out.append(res)

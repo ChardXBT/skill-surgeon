@@ -24,15 +24,35 @@ from .tailor import T_RULES, tailor_all
 from .watch import watch_all
 
 
+def _discover(args):
+    """discover() with the CLI's vendored-dir policy; returns skipped too."""
+    skipped: list[Path] = []
+    skills, roots = discover(args.paths,
+                             include_vendored=getattr(args, "include_vendored", False),
+                             skipped=skipped)
+    return skills, roots, skipped
+
+
+def _vendored_note(skipped: list[Path]) -> None:
+    if skipped:
+        print(c(f"  skipped {len(skipped)} vendored SKILL.md under vendor/ dirs "
+                "(upstream reference copies; --include-vendored scans them)", "dim"))
+
+
 def run_scan(paths: list[str], model: str, host: str,
-             no_semantic: bool, want_fixes: bool):
-    skills, roots = discover(paths)
-    report = Report(skills=skills)
+             no_semantic: bool, want_fixes: bool,
+             include_vendored: bool = False):
+    skipped: list[Path] = []
+    skills, roots = discover(paths, include_vendored=include_vendored,
+                             skipped=skipped)
+    report = Report(skills=skills, skipped_vendored=skipped)
     report.findings = all_structural(skills)
 
     client = None
     analysis: dict = {}
-    if not no_semantic and skills:
+    if no_semantic:
+        report.semantic_note = "disabled (--no-semantic)"
+    elif skills:
         client = OllamaClient(model=model, host=host)
         ok, note = client.available()
         report.semantic_ok, report.semantic_note = ok, note
@@ -62,7 +82,8 @@ def _renumber(fixes: list[Fix]) -> None:
 
 def cmd_scan(args) -> int:
     report, fixes, roots = run_scan(args.paths, args.model, args.host,
-                                    args.no_semantic, want_fixes=True)
+                                    args.no_semantic, want_fixes=True,
+                                    include_vendored=args.include_vendored)
     if not report.skills:
         print("No SKILL.md files found. Pass a skills dir, e.g. `surgeon scan ~/.agents/skills`")
         return 3
@@ -122,7 +143,8 @@ def _apply_list(fixes: list[Fix], log_lines: list[str]) -> tuple[int, int]:
 
 def cmd_fix(args) -> int:
     report, fixes, roots = run_scan(args.paths, args.model, args.host,
-                                    args.no_semantic, want_fixes=True)
+                                    args.no_semantic, want_fixes=True,
+                                    include_vendored=args.include_vendored)
     if not report.skills:
         print("No SKILL.md files found.")
         return 3
@@ -168,12 +190,13 @@ def cmd_fix(args) -> int:
             print(f"  - {fx.id} {fx.skill}: {fx.rationale[:140]}")
             log.append(f"- {fx.id} **{fx.skill}** ({fx.rule}) - manual: {fx.rationale}")
 
-    Path("surgery-log.md").write_text("\n".join(log) + "\n", encoding="utf-8")
-    print(c(f"\n{applied} fix(es) applied · surgery-log.md written", "bold"))
+    Path(args.log).write_text("\n".join(log) + "\n", encoding="utf-8")
+    print(c(f"\n{applied} fix(es) applied · {args.log} written", "bold"))
 
     if applied:
         print(c("re-scanning to verify...", "dim"))
-        report2, _, roots2 = run_scan(args.paths, args.model, args.host, True, False)
+        report2, _, roots2 = run_scan(args.paths, args.model, args.host, True, False,
+                                      include_vendored=args.include_vendored)
         print(f"  score {report.score()}/100 -> {report2.score()}/100 "
               f"({report2.counts()} findings now)")
     return 0
@@ -201,10 +224,27 @@ def cmd_apply(args) -> int:
     log = [f"# Surgery log - {datetime.now().isoformat(timespec='seconds')}", ""]
     applied, failed = _apply_list(chosen, log)
     for f in skipped:
-        log.append(f"- {f.id} **{f.skill}** ({f.rule}) - skipped")
-    Path("surgery-log.md").write_text("\n".join(log) + "\n", encoding="utf-8")
-    print(f"{applied} applied, {failed} failed, {len(skipped)} skipped → surgery-log.md")
-    return 0 if failed == 0 else 1
+        reason = _skip_reason(f, args.safe_only)
+        log.append(f"- {f.id} **{f.skill}** ({f.rule}) - skipped: {reason}")
+        if f.id in ids:  # the operator asked for it - say why it was held
+            print(f"  {f.id} not applied: {reason}")
+    unknown = sorted(ids - {f.id for f in fixes})
+    if unknown:
+        print(f"  unknown fix id(s): {', '.join(unknown)}")
+    log_path = Path(args.log)
+    log_path.write_text("\n".join(log) + "\n", encoding="utf-8")
+    print(f"{applied} applied, {failed} failed, {len(skipped)} skipped -> {log_path}")
+    return 1 if failed else (3 if unknown else 0)
+
+
+def _skip_reason(f: Fix, safe_only: bool) -> str:
+    if f.kind != "replace_text":
+        return f"{f.kind} fix - make this change by hand after review"
+    if not f.auto:
+        return "needs human judgement (guessed or ambiguous target) - edit by hand"
+    if safe_only and f.confidence != "safe":
+        return "review-confidence fix held by --safe-only"
+    return "not selected"
 
 
 def cmd_rules(_args) -> int:
@@ -217,7 +257,7 @@ def cmd_rules(_args) -> int:
 
 def cmd_adopt(args) -> int:
     """Stamp metadata.workspace + verified_at so `watch` has a baseline."""
-    skills, roots = discover(args.paths)
+    skills, roots, skipped = _discover(args)
     if not skills:
         print("No SKILL.md files found.")
         return 3
@@ -225,6 +265,7 @@ def cmd_adopt(args) -> int:
     ads = adopt_all(skills, ws, yes=args.yes, detect=args.detect)
     mode = "applied" if args.yes else "plan (pass --yes to write)"
     print(f"\n  ADOPT - declare workspace + verification stamp [{mode}]")
+    _vendored_note(skipped)
     print("")
     for ad in ads:
         if ad.updates:
@@ -242,11 +283,16 @@ def cmd_adopt(args) -> int:
 def cmd_diff(args) -> int:
     """Compare current health against a `scan --save-baseline` snapshot."""
     report, _, _ = run_scan(args.paths, args.model, args.host,
-                            True, want_fixes=False)
+                            True, want_fixes=False,
+                            include_vendored=args.include_vendored)
     if not report.skills:
         print("No SKILL.md files found.")
         return 3
-    d = diff_baseline(Path(args.baseline), report)
+    try:
+        d = diff_baseline(Path(args.baseline), report)
+    except SystemExit as e:  # unreadable/invalid baseline is a usage error
+        print(e)
+        return 3
     print(f"\n  DIFF - vs baseline saved {d['saved']}")
     print(f"  score {d['score_then']}/100 -> {d['score_now']}/100   "
           f"{d['unchanged']} unchanged   "
@@ -262,13 +308,14 @@ def cmd_diff(args) -> int:
 def cmd_tailor(args) -> int:
     """Rewrite skill instructions to fit THIS environment (or a target platform)."""
     env = detect()
-    skills, roots = discover(args.paths)
+    skills, roots, skipped = _discover(args)
     if not skills:
         print("No SKILL.md files found.")
         return 3
     findings, fixes = tailor_all(skills, env, args.target)
     print(f"\n  TAILOR - environment fit")
     print(c(f"  {env_describe(env)}", "dim"))
+    _vendored_note(skipped)
     if args.target:
         print(c(f"  target platform: .{args.target}/skills", "dim"))
     print("")
@@ -291,7 +338,7 @@ def cmd_tailor(args) -> int:
 def cmd_test(args) -> int:
     """Smoke-test the commands each skill documents."""
     env = detect()
-    skills, roots = discover(args.paths)
+    skills, roots, skipped = _discover(args)
     if not skills:
         print("No SKILL.md files found.")
         return 3
@@ -306,6 +353,7 @@ def cmd_test(args) -> int:
     mode = "live execution" if args.run else "static (pass --run to execute)"
     print(f"\n  SMOKE TEST - do the documented commands work? [{mode}]")
     print(c(f"  {env_describe(env)}", "dim"))
+    _vendored_note(skipped)
     print("")
     last = None
     for r in rep.results:
@@ -314,10 +362,10 @@ def cmd_test(args) -> int:
             last = r.skill
         mark = {"ok": "ok", "missing_file": "error", "missing_interp": "error",
                 "syntax_fail": "error", "crashed": "error", "timeout": "warn",
-                "unsafe_skipped": "info"}[r.status]
+                "unsafe_skipped": "info", "unverified": "info"}.get(r.status, "info")
         tag = {"ok": "PASS", "missing_file": "DEAD", "missing_interp": "NOENV",
                "syntax_fail": "FAIL", "crashed": "CRASH", "timeout": "SLOW",
-               "unsafe_skipped": "SKIP"}[r.status]
+               "unsafe_skipped": "SKIP", "unverified": "UNVER"}.get(r.status, "?")
         print(f"    {c(tag.ljust(5), mark)} L{r.line:<5} {r.command[:70]}"
               + (f"  {c(r.detail, 'dim')}" if r.detail else ""))
     cnt = rep.counts()
@@ -325,13 +373,14 @@ def cmd_test(args) -> int:
     print(f"\n  {len(rep.results)} commands checked - "
           f"{c(str(cnt.get('ok',0)) + ' pass', 'ok')}   "
           f"{c(str(bad) + ' broken', 'error' if bad else 'dim')}   "
-          f"{cnt.get('unsafe_skipped',0)} skipped (unsafe)")
+          f"{cnt.get('unsafe_skipped',0)} skipped (unsafe)   "
+          f"{cnt.get('unverified',0)} unverified (placeholder paths)")
     return 1 if bad else 0
 
 
 def cmd_watch(args) -> int:
     """Check whether skills' declared workspaces drifted since verification."""
-    skills, roots = discover(args.paths)
+    skills, roots, skipped = _discover(args)
     if not skills:
         print("No SKILL.md files found.")
         return 3
@@ -344,6 +393,7 @@ def cmd_watch(args) -> int:
                         for r in results],
         }, indent=2), encoding="utf-8")
     print(f"\n  WATCH - workspace drift")
+    _vendored_note(skipped)
     if not results:
         print(c("  no skills declare metadata.workspace - nothing to watch", "dim"))
         print("  declare one in frontmatter:  metadata: {workspace: ~/path/to/repo}")
@@ -365,7 +415,7 @@ def cmd_watch(args) -> int:
 
 def cmd_coverage(args) -> int:
     """Map the library as a router sees it: triggers, overlaps, gaps."""
-    skills, roots = discover(args.paths)
+    skills, roots, skipped = _discover(args)
     if not skills:
         print("No SKILL.md files found.")
         return 3
@@ -380,15 +430,23 @@ def cmd_coverage(args) -> int:
         Path(args.json).write_text(json.dumps({
             "skills": len(skills), "embed": rep.embed_note,
             "no_trigger": rep.no_trigger,
+            "no_trigger_nested": rep.no_trigger_nested,
             "similar_pairs": [{"a": a, "b": b, "score": j}
                               for a, b, j in rep.similar_pairs],
             "uncovered": rep.uncovered,
         }, indent=2), encoding="utf-8")
     print(f"\n  COVERAGE - routing map for {len(skills)} skills")
+    _vendored_note(skipped)
     print("")
     if rep.no_trigger:
         print(c("  no trigger phrasing (may never fire):", "warn"))
         for s in rep.no_trigger:
+            print(f"    - {s}")
+    if rep.no_trigger_nested:
+        print(c("\n  nested sub-skills without trigger phrasing (routed by their "
+                "parent skill; matters only where a host lists nested skills):",
+                "info"))
+        for s in rep.no_trigger_nested:
             print(f"    - {s}")
     if rep.similar_pairs:
         print(c("\n  description overlap (possible routing confusion):", "warn"))
@@ -400,7 +458,7 @@ def cmd_coverage(args) -> int:
             print(f"    - {u}")
     elif rep.model_note != "off":
         print(c(f"  model gap analysis: {rep.model_note}", "dim"))
-    if not rep.no_trigger and not rep.similar_pairs:
+    if not rep.no_trigger and not rep.no_trigger_nested and not rep.similar_pairs:
         print(c("  every skill has trigger phrasing; no deterministic overlap", "ok"))
     return 0
 
@@ -451,7 +509,8 @@ def cmd_doctor(args) -> int:
 def cmd_badge(args) -> int:
     """Print a README badge line with the library's score."""
     report, fixes, roots = run_scan(args.paths, args.model, args.host,
-                                    True, want_fixes=False)
+                                    True, want_fixes=False,
+                                    include_vendored=args.include_vendored)
     if not report.skills:
         print("No SKILL.md files found.")
         return 3
@@ -463,12 +522,7 @@ def cmd_badge(args) -> int:
     return 0
 
 
-def main(argv=None) -> int:
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
+def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="surgeon",
                                 description="Audit agent skills, propose fixes, "
                                             "apply them after operator approval.")
@@ -477,11 +531,23 @@ def main(argv=None) -> int:
     p.add_argument("--host", default=DEFAULT_HOST)
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    def add_common(sp):
+    def add_paths(sp):
         sp.add_argument("paths", nargs="*", default=[],
                         help="skills roots / skill dirs / SKILL.md files (default: auto-discover)")
+        sp.add_argument("--include-vendored", action="store_true",
+                        help="also scan SKILL.md under vendor/ dirs (upstream "
+                             "reference copies; skipped by default)")
+
+    def add_common(sp):
+        add_paths(sp)
         sp.add_argument("--no-semantic", action="store_true",
                         help="skip the open-weight model pass (structural only)")
+
+    def add_model(sp):
+        # SUPPRESS: a subparser default would silently overwrite a global
+        # `surgeon --model X <cmd>` value; only set it when given here.
+        sp.add_argument("--model", default=argparse.SUPPRESS)
+        sp.add_argument("--host", default=argparse.SUPPRESS)
 
     sp = sub.add_parser("scan", help="audit skills and write a fix plan")
     add_common(sp)
@@ -498,6 +564,7 @@ def main(argv=None) -> int:
 
     sp = sub.add_parser("fix", help="scan then interactively approve & apply fixes")
     add_common(sp)
+    sp.add_argument("--log", default="surgery-log.md", help="decision log FILE")
     sp.set_defaults(func=cmd_fix)
 
     sp = sub.add_parser("apply", help="apply chosen fixes from a plan file")
@@ -506,33 +573,33 @@ def main(argv=None) -> int:
     sp.add_argument("--all", action="store_true")
     sp.add_argument("--safe-only", action="store_true",
                     help="apply only deterministic fixes; hold review-flagged ones")
+    sp.add_argument("--log", default="surgery-log.md", help="decision log FILE")
     sp.set_defaults(func=cmd_apply)
 
     sp = sub.add_parser("rules", help="list all rules")
     sp.set_defaults(func=cmd_rules)
 
     sp = sub.add_parser("tailor", help="adapt skills to this environment (or --for a platform)")
-    sp.add_argument("paths", nargs="*", default=[])
+    add_paths(sp)
     sp.add_argument("--for", dest="target", default=None,
                     help="target platform root name: claude|agents|devin|codex|cursor")
     sp.add_argument("--plan", default="tailor-plan.json")
     sp.set_defaults(func=cmd_tailor)
 
     sp = sub.add_parser("test", help="smoke-test documented commands")
-    sp.add_argument("paths", nargs="*", default=[])
+    add_paths(sp)
     sp.add_argument("--run", action="store_true",
                     help="actually execute commands (denylisted ones are skipped, env scrubbed, temp-copy sandbox)")
     sp.add_argument("--json", default="", help="write results to FILE")
     sp.set_defaults(func=cmd_test)
 
     sp = sub.add_parser("watch", help="flag skills whose workspaces changed since verification")
-    sp.add_argument("paths", nargs="*", default=[])
+    add_paths(sp)
     sp.add_argument("--json", default="", help="write results to FILE")
     sp.set_defaults(func=cmd_watch)
 
     sp = sub.add_parser("coverage", help="routing/intent map of the library")
-    sp.add_argument("paths", nargs="*", default=[])
-    sp.add_argument("--no-semantic", action="store_true")
+    add_common(sp)
     sp.add_argument("--json", default="", help="write results to FILE")
     sp.set_defaults(func=cmd_coverage)
 
@@ -541,7 +608,7 @@ def main(argv=None) -> int:
     sp.set_defaults(func=cmd_badge)
 
     sp = sub.add_parser("adopt", help="stamp metadata.workspace + verified_at for watch")
-    sp.add_argument("paths", nargs="*", default=[])
+    add_paths(sp)
     sp.add_argument("--workspace", default="",
                     help="repo path the skill monitors (repeatable skill-wide)")
     sp.add_argument("--detect", action="store_true",
@@ -552,17 +619,23 @@ def main(argv=None) -> int:
 
     sp = sub.add_parser("diff", help="compare health vs a saved baseline")
     sp.add_argument("baseline", help="file written by `scan --save-baseline`")
-    sp.add_argument("paths", nargs="*", default=[])
-    sp.add_argument("--model", default=DEFAULT_MODEL)
-    sp.add_argument("--host", default=DEFAULT_HOST)
+    add_paths(sp)
+    add_model(sp)
     sp.set_defaults(func=cmd_diff)
 
     sp = sub.add_parser("doctor", help="check surgeon's own runtime prerequisites")
-    sp.add_argument("--model", default=DEFAULT_MODEL)
-    sp.add_argument("--host", default=DEFAULT_HOST)
+    add_model(sp)
     sp.set_defaults(func=cmd_doctor)
+    return p
 
-    args = p.parse_args(argv)
+
+def main(argv=None) -> int:
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    args = build_parser().parse_args(argv)
     return args.func(args)
 
 

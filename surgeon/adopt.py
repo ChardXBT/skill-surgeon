@@ -49,13 +49,19 @@ def detect_workspace(skill: Skill) -> str:
     string when nothing resolves inside a repo.
     """
     from .rules_structural import _candidate_refs
+    # The repo that holds the skill itself (a skills library checkout) is
+    # where its OWN bundled files live - never the workspace it monitors.
+    home = _git_root(skill.dir)
+    home = home.resolve() if home else None
     votes: dict[Path, int] = {}
     for ref, _line in _candidate_refs(skill):
         for base in (skill.dir, *skill.dir.parents):
             cand = (base / ref)
             if cand.exists():
                 root = _git_root(cand.parent)
-                if root and skill.root not in root.parents and root != skill.root:
+                root = root.resolve() if root else None
+                if root and root != home and skill.root not in root.parents \
+                        and root != skill.root:
                     votes[root] = votes.get(root, 0) + 1
                 break
     return str(max(votes, key=votes.get)) if votes else ""

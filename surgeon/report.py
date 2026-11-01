@@ -31,6 +31,10 @@ def render_terminal(report: Report, roots: list[Path]) -> str:
         out.append(c(f"  root: {r}", "dim"))
     sem = "on (local model)" if report.semantic_ok else f"off - {report.semantic_note}"
     out.append(c(f"  scanned {len(report.skills)} skills · semantic pass: {sem}", "dim"))
+    if report.skipped_vendored:
+        out.append(c(f"  skipped {len(report.skipped_vendored)} vendored SKILL.md under "
+                     "vendor/ dirs (upstream reference copies; --include-vendored "
+                     "scans them)", "dim"))
     out.append("")
     out.append(f"  score {c(str(score) + '/100 ' + grade(score), 'bold')}   "
                f"{c(str(counts['error']) + ' errors', 'error')}   "
@@ -64,15 +68,21 @@ def render_markdown(report: Report, roots: list[Path]) -> str:
         f"**Score: {report.score()}/100 ({grade(report.score())})** - "
         f"{counts['error']} errors · {counts['warn']} warnings · {counts['info']} suggestions",
         "",
-        f"Scanned **{len(report.skills)}** skills across {len(roots)} root(s). "
+        f"Scanned **{len(report.skills)}** skills across {len(roots)} root(s)"
+        + (f" ({len(report.skipped_vendored)} vendored SKILL.md skipped)"
+           if report.skipped_vendored else "") + ". "
         f"Semantic pass (open-weight local model): "
         f"{'enabled' if report.semantic_ok else 'disabled - ' + report.semantic_note}.",
         "",
         "| Severity | Rule | Skill | Finding | Location |",
         "|---|---|---|---|---|",
     ]
-    for f in sorted(report.findings, key=lambda x: (x.severity, x.skill)):
-        loc = f"{f.file.name}:{f.line}" if f.line else f.file.name
+    sev_order = {"error": 0, "warn": 1, "info": 2}
+    for f in sorted(report.findings,
+                    key=lambda x: (sev_order.get(x.severity, 3), x.skill)):
+        # every entry is "SKILL.md" - keep the owning dir so rows are findable
+        name = f"{f.file.parent.name}/{f.file.name}"
+        loc = f"{name}:{f.line}" if f.line else name
         lines.append(f"| {f.severity} | {f.rule} | {_md_escape(f.skill)} | "
                      f"{_md_escape(f.message)} | `{loc}` |")
     if report.collisions:
@@ -107,10 +117,12 @@ def apply_fix(fix) -> tuple[bool, str]:
     p = Path(fix.file)
     try:
         # newline="" keeps \r\n intact - read_text's universal mode would
-        # strip \r before the EOL detection below ever sees it
-        with open(p, "r", encoding="utf-8", errors="replace",
-                  newline="") as fh:
+        # strip \r before the EOL detection below ever sees it. Strict
+        # decoding: a non-UTF-8 file must not be rewritten with U+FFFD.
+        with open(p, "r", encoding="utf-8", newline="") as fh:
             raw = fh.read()
+    except UnicodeDecodeError:
+        return False, "file is not valid UTF-8; refusing to rewrite it"
     except OSError as e:
         return False, f"read failed: {e}"
     if not fix.find:
@@ -126,7 +138,10 @@ def apply_fix(fix) -> tuple[bool, str]:
     new = raw.replace(find, repl) if fix.replace_all \
         else raw.replace(find, repl, 1)
     try:
-        p.write_text(new, encoding="utf-8")
+        # newline="" again on write: text mode on Windows would expand every
+        # \n to \r\n, turning an LF file into CRLF and a CRLF file into \r\r\n
+        with open(p, "w", encoding="utf-8", newline="") as fh:
+            fh.write(new)
     except OSError as e:
         return False, f"write failed: {e}"
     return True, "applied"

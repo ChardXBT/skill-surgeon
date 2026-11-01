@@ -379,8 +379,11 @@ class TestConfidence(unittest.TestCase):
         s007 = [f for f in fixes if f.rule == "S007"]
         if s007:   # only when a fuzzy match exists
             self.assertTrue(all(f.confidence == "review" for f in s007))
+        # a dated-name fix renames the invocation name: an identity change
+        # the operator decides, never part of apply --all / --safe-only
         s012 = [f for f in fixes if f.rule == "S012"]
-        self.assertTrue(all(f.confidence == "safe" for f in s012))
+        self.assertTrue(s012)
+        self.assertTrue(all(f.confidence == "review" and not f.auto for f in s012))
 
 
 if __name__ == "__main__":

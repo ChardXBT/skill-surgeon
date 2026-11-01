@@ -49,6 +49,11 @@ class Skill:
     def body_lines(self) -> int:
         return len(self.body.splitlines())
 
+    @property
+    def body_offset(self) -> int:
+        """Lines before the body: body line N (1-based) is file line N + this."""
+        return self.fm_end + 1 if self.fm_end != -1 else 0
+
 
 @dataclass
 class Finding:
@@ -113,6 +118,7 @@ class Report:
     desc_quality: list[dict] = field(default_factory=list)    # from semantic pass
     semantic_ok: bool = False
     semantic_note: str = ""
+    skipped_vendored: list[Path] = field(default_factory=list)  # not scanned
 
     def counts(self) -> dict:
         c = {"error": 0, "warn": 0, "info": 0}

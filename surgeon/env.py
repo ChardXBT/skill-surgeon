@@ -76,9 +76,12 @@ def _verify_works(tool: str, path: str | None) -> str | None:
 def detect() -> Environment:
     sysname = platform.system().lower()
     os_name = {"windows": "windows", "darwin": "macos"}.get(sysname, "linux")
-    shell = "powershell" if os.environ.get("PSModulePath") and os_name == "windows" \
-        else Path(os.environ.get("SHELL", "")).name or \
-        ("powershell" if os_name == "windows" else "sh")
+    # PSModulePath is a system-wide variable on every Windows machine, so it
+    # cannot tell PowerShell apart from Git Bash. Git Bash / MSYS2 export
+    # MSYSTEM (their $SHELL is a shell variable, not inherited by children).
+    shell = Path(os.environ.get("SHELL", "")).stem or \
+        ("bash" if os.environ.get("MSYSTEM") else
+         "powershell" if os_name == "windows" else "sh")
 
     env = Environment(os=os_name, shell=shell, home=Path.home())
     for t in INTERPRETERS:

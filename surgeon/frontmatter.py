@@ -7,6 +7,7 @@ a hand parser so a sloppy file still yields what it can.
 
 from __future__ import annotations
 
+import json
 import re
 
 try:
@@ -31,6 +32,25 @@ def split_frontmatter(text: str) -> tuple[str | None, str, int, int]:
         j += 1
     # opening fence but no closing fence
     return None, text, i, -1
+
+
+def _scalar(v: str) -> str:
+    """A flow scalar as YAML reads it: `"a: b"` -> `a: b`, `'it''s'` ->
+    `it's`, `plain # note` -> `plain`. Without this the zero-dependency path
+    kept the quotes, so `name: "x"` failed the kebab-case check."""
+    v = v.strip()
+    if v[:1] in ("'", '"'):  # drop a comment after the closing quote
+        m = re.match(r"^(%s.*%s)\s*(?:#.*)?$" % (v[0], v[0]), v)
+        if m:
+            v = m.group(1)
+    if len(v) >= 2 and v[0] == v[-1] == '"':
+        try:
+            return json.loads(v)
+        except ValueError:
+            return v[1:-1]
+    if len(v) >= 2 and v[0] == v[-1] == "'":
+        return v[1:-1].replace("''", "'")
+    return re.split(r"\s+#", v, maxsplit=1)[0].rstrip()
 
 
 def _manual_parse(fm: str) -> dict:
@@ -60,7 +80,7 @@ def _manual_parse(fm: str) -> dict:
                 i += 1
             meta[key] = "\n".join(buf) if v.startswith("|") else " ".join(buf)
         elif v:
-            meta[key] = v                                # plain scalar
+            meta[key] = _scalar(v)                       # plain scalar
             i += 1
         else:
             # empty value: nested block or folded continuation follows
@@ -77,7 +97,7 @@ def _manual_parse(fm: str) -> dict:
             ind0 = min(c[0] for c in children)
             lvl0 = [s for ind, s in children if ind == ind0]
             if all(s.startswith(("- ", "-\t")) for s in lvl0):
-                meta[key] = [s[2:].strip() for s in lvl0]
+                meta[key] = [_scalar(s[2:]) for s in lvl0]
             elif all(":" in s for s in lvl0):
                 m: dict = {}
                 cur = ""
@@ -85,14 +105,14 @@ def _manual_parse(fm: str) -> dict:
                     if ind == ind0:
                         kk, _, vv = s.partition(":")
                         cur = kk.strip()
-                        m[cur] = vv.strip()
+                        m[cur] = _scalar(vv)
                     elif cur and s.startswith(("- ", "-\t")):
                         m[cur] = (m[cur] if isinstance(m.get(cur), list) else [])
-                        m[cur].append(s[2:].strip())
+                        m[cur].append(_scalar(s[2:]))
                     elif cur and ":" in s:
                         kk, _, vv = s.partition(":")
                         m[cur] = (m[cur] if isinstance(m.get(cur), dict) else {})
-                        m[cur][kk.strip()] = vv.strip()
+                        m[cur][kk.strip()] = _scalar(vv)
                     elif cur and isinstance(m.get(cur), str):
                         m[cur] = (m[cur] + " " + s).strip()
                 meta[key] = m

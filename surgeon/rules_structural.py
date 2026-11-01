@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import difflib
 import re
+from collections import Counter
 from pathlib import Path
 
 from .model import Finding, Skill
@@ -48,10 +49,79 @@ BUNDLED_PREFIXES = ("scripts/", "references/", "assets/", "examples/",
 
 PLACEHOLDER_REF_RE = re.compile(r"Y{2,4}|M{2}D{2}|\{|\}|PLACEHOLDER|INSERT")
 
+# Illustrative paths in prose, not real references: `…/task-N-brief.md`,
+# `exact/path/to/file.py`, `tests/test_x.py`. Bare basenames that are clearly
+# generic single-letter / filler stems are also placeholders.
+PLACEHOLDER_SEGMENT_RE = re.compile(
+    r"(?:^|/)(?:\.\.\.|…|exact|placeholder|dummy|sample)(?:/|$)")
+GENERIC_STEM_RE = re.compile(
+    r"(?i)^(?:[xyz]+|n|file|name|example|sample|foo|bar|baz|thing|item|tool|"
+    r"something|whatever|it|this|that|test_x|my_file|your_file|the_file)$"
+    r"|(?:^|[-_.])(?:n|xx?)(?:[-_.]|$)")
+# Numbered-placeholder stems, case-sensitive: `slideN.xml`, `slideLayoutN.xml`,
+# `NNN-short-slug.md`. (A case-insensitive `n$` would also hit `plan.md`.)
+NUMBERED_STEM_RE = re.compile(r"[a-z]N$|(?:^|[-_.])N{2,}(?:[-_.]|$)")
+
+# A ref on a line that says the file is *produced* is a runtime output, not a
+# bundled input. Access verbs (reads/exists/detects/...) mark files the skill
+# touches in the target project or a managed repo - also not bundled inputs.
+# Usage verbs (run/execute/invoke/load) are NOT here: a bundled script that is
+# invoked must actually exist in the package.
+OUTPUT_VERB_RE = re.compile(
+    r"(?i)\b(?:writes?|wrote|writing|written|creates?|creating|created|"
+    r"generates?|generating|generated|produces?|outputs?|emits?|"
+    r"saves?|saved|serializes?|appends?|logs?|records?|stores?|keeps|cleared into|"
+    r"reads?|reading|opens?|exists?|looks?|finds?|detects?|scans?|audits?|"
+    r"flags?|greps?|searches?|matches?|targets?|watches?|if present|"
+    r"checks? for|checking for)\b")
+
+# A ref that follows an explicit example marker on its line is illustrative
+# (`**Examples:** `references/schema.md` for database tables`), not a real file.
+EXAMPLE_MARKER_RE = re.compile(
+    r"(?i)\be\.g\.|\bfor (?:example|instance)\b|\bexamples?\s*:")
+
+# A match sitting inside a "never include / banned / out of scope" section is
+# usually an intentional literal (a denylist entry), not a reference or a path.
+DENYLIST_CONTEXT_RE = re.compile(
+    r"(?i)\b(?:never|banned|denylist|blocklist|forbidden|do not|must not|"
+    r"sanitiz\w*|redact|out of scope|never synced|exclud\w+|stripped)\b")
+
 ABS_PATH_RE = re.compile(
-    r"(?:[A-Za-z]:[\\/](?:Users|home|WINDOWS|Program Files)[^\s)\"'`\]>]*"
+    r"(?:[A-Za-z]:[\\/](?:Users|home)[\\/][^\s)\"'`\]>]+"
+    r"|[A-Za-z]:[\\/](?i:WINDOWS|Program Files)[^\s)\"'`\]>]*"
     r"|(?<![\w:/])/(?:Users|home)/[^\s)\"'`\]>]+)"
 )
+# `C:\Users\<you>\...`, `/home/$USER/...`: documentation placeholders, not a
+# real machine's path.
+PLACEHOLDER_USERS = {"you", "user", "username", "name", "me", "yourname",
+                     "your-name", "your_name", "someone", "example", "alice",
+                     "bob", "jdoe", "foo", "...", "…", "*"}
+
+
+def in_denylist_context(skill: Skill, line: int) -> bool:
+    """True when file `line` sits in a section that lists banned/excluded
+    content - a literal there is a denylist entry, not a live reference."""
+    if not line:
+        return False
+    lines = skill.raw.split("\n")
+    for i in range(min(line - 1, len(lines) - 1), max(-1, line - 12), -1):
+        txt = lines[i]
+        if txt.startswith("#"):
+            return bool(DENYLIST_CONTEXT_RE.search(txt))
+        if DENYLIST_CONTEXT_RE.search(txt) and txt.rstrip().endswith(":"):
+            return True
+    return False
+
+
+def _placeholder_user_path(frag: str) -> bool:
+    """True for `C:\\Users\\<you>`, `/home/$USER`, `C:/Users/USERNAME`..."""
+    parts = [p for p in re.split(r"[\\/]+", frag) if p]
+    if parts and re.fullmatch(r"[A-Za-z]:", parts[0]):
+        parts = parts[1:]                      # drop the drive letter
+    if not parts or parts[0].lower() not in ("users", "home"):
+        return False                           # C:\Windows, C:\Program Files
+    user = parts[1] if len(parts) > 1 else ""
+    return not user or user.lower() in PLACEHOLDER_USERS or user[:1] in "<%${["
 
 SECRET_PATTERNS = [
     (re.compile(r"sk-(?:ant-|live-)?[A-Za-z0-9_-]{20,}"), "API key literal"),
@@ -85,7 +155,8 @@ def _candidate_refs(skill: Skill) -> list[tuple[str, int]]:
     def add(raw_ref: str, pos: int):
         ref = raw_ref.strip().replace("\\", "/")
         ref = ref.split("#", 1)[0]
-        ref = re.sub(r":\d+(?::\d+)?$", "", ref)  # strip :LINE / :L1-L2
+        cited = re.search(r":L?\d+(?:[:-]L?\d+)?$", ref)
+        ref = re.sub(r":L?\d+(?:[:-]L?\d+)?$", "", ref)  # strip :LINE / :L1-L2
         ref = ref.strip("'\"")
         if not ref or ref in seen:
             return
@@ -96,13 +167,30 @@ def _candidate_refs(skill: Skill) -> list[tuple[str, int]]:
             return
         if any(c in ref for c in "*$<>") or "%" in ref or " " in ref:
             return
+        if cited and not low.startswith(BUNDLED_PREFIXES):
+            # `Toast.tsx:41` cites a line in the project under review, not a
+            # file bundled with the skill.
+            return
+        if "…" in ref or "..." in ref:  # elided name: `Q3-report…v12.pdf`
+            return
         if PLACEHOLDER_REF_RE.search(ref):
+            return
+        if PLACEHOLDER_SEGMENT_RE.search(low):
+            return
+        stem = Path(ref).stem
+        if GENERIC_STEM_RE.search(stem) or NUMBERED_STEM_RE.search(stem):
+            return
+        if Path(ref).name.startswith("-"):  # a suffix pattern: `<name>-notes.md`
             return
         looks_fileish = Path(ref).suffix.lower() in FILEISH_EXT
         looks_dirish = low.startswith(DIR_PREFIXES)
         if looks_fileish or looks_dirish:
             seen.add(ref)
-            refs.append((ref, _line_of(skill.raw, pos)))
+            # `pos` is a body offset; count it against the body, then add the
+            # frontmatter length so `line` is a real file line number.
+            body_line = _line_of(skill.body, pos)
+            line = body_line + (skill.fm_end + 1 if skill.fm_end != -1 else 0)
+            refs.append((ref, line))
 
     for m in MD_LINK_RE.finditer(skill.body):
         add(m.group(1), m.start())
@@ -119,17 +207,33 @@ def check_skill(skill: Skill) -> list[Finding]:
         f.append(Finding("S001", "error", slug, fp,
                          skill.parse_error or "missing/empty frontmatter block",
                          fixable=False))
-    elif skill.parse_error:
-        f.append(Finding("S001", "warn", slug, fp, skill.parse_error))
-
+    else:
+        if skill.parse_error:
+            f.append(Finding("S001", "warn", slug, fp, skill.parse_error))
+        # PyYAML (and the lenient fallback) silently keep the LAST of two
+        # same-name keys - strict parsers reject the file instead. Catch it.
+        if skill.fm_raw:
+            top_keys = [l.split(":", 1)[0].strip()
+                        for l in skill.fm_raw.splitlines()
+                        if l[:1] not in " \t" and l.strip() and ":" in l]
+            for key, n in Counter(top_keys).items():
+                if n > 1:
+                    f.append(Finding(
+                        "S001", "error", slug, fp,
+                        f"duplicate top-level frontmatter key `{key}` "
+                        f"({n}x) - strict parsers drop the skill"))
     name = skill.name
+
     if skill.fm_end != -1:
         if not name:
             f.append(Finding("S002", "error", slug, fp, "missing `name` field"))
         elif len(name) > 64 or not NAME_RE.match(name):
             f.append(Finding("S002", "error", slug, fp,
                              f"name `{name}` is not kebab-case <=64 chars (spec)"))
-        elif name != skill.dir.name:
+        elif name != skill.dir.name and \
+                "variants" not in {p.lower() for p in skill.path.parts}:
+            # variants/<slot>/SKILL.md shares the capability name by
+            # convention - the slot dir is not the skill's name.
             f.append(Finding("S003", "warn", slug, fp,
                              f"name `{name}` != directory `{skill.dir.name}`", fixable=True))
 
@@ -160,6 +264,16 @@ def check_skill(skill: Skill) -> list[Finding]:
     workspaces = [Path(str(w)).expanduser() for w in
                   (ws_raw if isinstance(ws_raw, list) else [ws_raw])
                   if isinstance(w, (str, int, float)) and w]
+    # relative workspaces resolve from the skill dir (same rule as `watch`),
+    # never from whatever directory surgeon happens to run in
+    workspaces = [w if w.is_absolute() else skill.dir / w for w in workspaces]
+    existing_ws = [w for w in workspaces if w.exists()]
+    if workspaces and not existing_ws:
+        f.append(Finding(
+            "S007", "warn", slug, fp,
+            "declared workspace(s) absent on this machine: "
+            + ", ".join(str(w) for w in workspaces)
+            + " - refs under them are unverified, not dead"))
 
     # Files the skill GENERATES at runtime (outputs, bundles, state) are not
     # dead references - declare via metadata.generates.
@@ -178,18 +292,47 @@ def check_skill(skill: Skill) -> list[Finding]:
             if d == skill.root or d.parent == d:
                 break
             d = d.parent
-        return any((w / ref).exists() for w in workspaces)
+        if any((w / ref).exists() for w in existing_ws):
+            return True
+        if "/" not in ref:
+            # A bare name shared by several bundled files (one TECHNIQUE.md
+            # per technique dir) is a generic mention of real files. A single
+            # match stays a finding: S007's fix rewrites it to the full path.
+            try:
+                hits = 0
+                for p in skill.dir.rglob(ref):
+                    hits += p.is_file()
+                    if hits >= 2:
+                        return True
+            except (OSError, ValueError):
+                pass
+        return False
 
+    raw_lines = skill.raw.split("\n")
     for ref, line in _candidate_refs(skill):
         if _ref_ok(ref):
             continue
+        line_text = raw_lines[line - 1] if 0 < line <= len(raw_lines) else ""
+        if OUTPUT_VERB_RE.search(line_text):
+            continue  # the file is produced at runtime - not a bundled input
+        ex = EXAMPLE_MARKER_RE.search(line_text)
+        if ex and line_text.replace("\\", "/").find(ref, ex.end()) != -1:
+            continue  # follows "e.g." / "Examples:" - illustrative, not real
+        if in_denylist_context(skill, line):
+            continue  # a denylist entry names a file to keep OUT, not a ref
         if ref.startswith(BUNDLED_PREFIXES) or ref.startswith("./"):
             f.append(Finding("S007", "error", slug, fp,
                              f"dead bundled reference `{ref}`", line=line, fixable=True))
-        elif workspaces:
+        elif workspaces and len(existing_ws) == len(workspaces):
+            # Every declared workspace is mounted - the ref was checkable
+            # everywhere it could live and it matched none of them.
             f.append(Finding("S007", "error", slug, fp,
                              f"reference `{ref}` not found in skill dir or "
                              f"declared workspace(s)", line=line, fixable=True))
+        elif workspaces:
+            f.append(Finding("S007", "warn", slug, fp,
+                             f"reference `{ref}` unverified - workspace absent "
+                             "on this machine", line=line))
         else:
             f.append(Finding("S007", "warn", slug, fp,
                              f"reference `{ref}` not found in skill dir "
@@ -197,9 +340,17 @@ def check_skill(skill: Skill) -> list[Finding]:
 
     for m in ABS_PATH_RE.finditer(skill.raw):
         frag = m.group(0)
-        f.append(Finding("S008", "warn", slug, fp,
-                         f"absolute path `{frag}` is machine/user-specific",
-                         line=_line_of(skill.raw, m.start()), fixable=True))
+        if _placeholder_user_path(frag):
+            continue  # `C:\Users\<you>\...` documents a shape, not a machine
+        line = _line_of(skill.raw, m.start())
+        if in_denylist_context(skill, line):
+            f.append(Finding("S008", "info", slug, fp,
+                             f"absolute path `{frag}` listed in a denylist "
+                             "section (intentional literal?)", line=line))
+        else:
+            f.append(Finding("S008", "warn", slug, fp,
+                             f"absolute path `{frag}` is machine/user-specific",
+                             line=line, fixable=True))
         if sum(1 for x in f if x.rule == "S008") >= 5:
             break
 
@@ -273,8 +424,13 @@ def all_structural(skills: list[Skill]) -> list[Finding]:
     return findings
 
 
-def closest_existing(ref: str, skill: Skill) -> str | None:
-    """Fuzzy-match a dead ref against real files under the skill dir."""
+def closest_existing(ref: str, skill: Skill) -> tuple[str | None, str]:
+    """Fuzzy-match a dead ref against real files under the skill dir.
+
+    Returns (candidate, quality): quality "exact" means a file with the same
+    basename really exists in the package; "fuzzy" means a difflib guess that
+    may share only part of the name - never auto-apply a fuzzy target.
+    """
     pool: list[str] = []
     for p in skill.dir.rglob("*"):
         if p.is_file() and p.name.lower() != "skill.md":
@@ -283,11 +439,23 @@ def closest_existing(ref: str, skill: Skill) -> str | None:
             except ValueError:
                 pass
     if not pool:
-        return None
+        return None, ""
+    base = Path(ref).name.lower()
+    exact = sorted((p for p in pool if Path(p).name.lower() == base),
+                   key=lambda p: (len(p), p))
+    if len(exact) == 1:
+        return exact[0], "exact"
+    if exact:
+        # Several same-named files (e.g. one TECHNIQUE.md per variant) - the
+        # bare ref is a generic mention; any single target is arbitrary.
+        return exact[0], "ambiguous"
     m = difflib.get_close_matches(ref, pool, n=1, cutoff=0.55)
     if not m:
-        return None
-    # guard: the basenames must actually resemble each other
-    base_ratio = difflib.SequenceMatcher(
-        None, Path(ref).name.lower(), Path(m[0]).name.lower()).ratio()
-    return m[0] if base_ratio >= 0.5 else None
+        return None, ""
+    # guard: the names must actually resemble each other. Compare stems - a
+    # shared extension alone (`.sops.yaml` vs `openai.yaml`) inflates the
+    # ratio of the full basenames past any useful threshold.
+    stem_ratio = difflib.SequenceMatcher(
+        None, Path(ref).stem.lower().lstrip("."),
+        Path(m[0]).stem.lower().lstrip(".")).ratio()
+    return (m[0], "fuzzy") if stem_ratio >= 0.6 else (None, "")
