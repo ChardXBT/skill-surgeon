@@ -17,21 +17,24 @@ from .model import Finding, Report
 
 
 def _signature(f: Finding) -> str:
-    """Stable identity for a finding across scans.
+    """Stable identity for a finding across scans."""
+    return _signature_of(f.rule, f.skill, f.message)
 
-    Line numbers shift with cosmetic edits, so they're masked - but the
+
+def _signature_of(rule: str, skill: str, message: str) -> str:
+    """Line numbers shift with cosmetic edits, so they're masked - but the
     referenced file/identifier IS the finding's identity and is kept, so
     two different dead refs don't collapse into one signature.
     """
-    msg = re.sub(r"line \d+", "line", f.message)        # mask line numbers
+    msg = re.sub(r"line \d+", "line", message)          # mask line numbers
     msg = re.sub(r"[A-Za-z]:[\\/]\S+|/(?:home|Users)/\S+",
                  "<abspath>", msg)                     # mask abs prefixes
-    if f.rule in ("S005", "S006"):
+    if rule in ("S005", "S006"):
         # size findings restate a measurement ("~5791 tokens"); a one-word
         # edit must not read as one resolved + one new finding
         msg = re.sub(r"\d+", "N", msg)
     msg = re.sub(r"\s+", " ", msg).strip()
-    return f"{f.rule}|{f.skill}|{msg[:120]}"
+    return f"{rule}|{skill}|{msg[:120]}"
 
 
 def save_baseline(path: Path, report: Report) -> None:
@@ -59,10 +62,12 @@ def diff_baseline(baseline_path: Path, report: Report) -> dict:
                          "(write one with `scan --save-baseline FILE`)")
     old_find = [d for d in old["findings"] if isinstance(d, dict)]
     # `scan --json` reports carry rule/skill/message but no precomputed
-    # signature - derive it the same way so they work as baselines too
-    old_sig = {d.get("sig") or _signature(Finding(
-        d.get("rule", ""), d.get("severity", ""), d.get("skill", ""),
-        Path(d.get("file", "")), d.get("message", ""))): d for d in old_find}
+    # signature - derive it the same way so they work as baselines too.
+    # Severity never fed the signature, so a stale or crafted baseline
+    # entry can't smuggle an undeclared state in through here.
+    old_sig = {d.get("sig") or _signature_of(
+        d.get("rule", ""), d.get("skill", ""),
+        d.get("message", "")): d for d in old_find}
     now_sig = {_signature(f): f for f in report.findings}
 
     new = [f for sig, f in now_sig.items() if sig not in old_sig]

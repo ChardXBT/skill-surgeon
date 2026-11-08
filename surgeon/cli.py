@@ -19,7 +19,7 @@ from .model import Fix, Report
 from .report import apply_fix, render_markdown, render_terminal, c
 from .rules_structural import RULES, all_structural
 from .semantic import DEFAULT_HOST, DEFAULT_MODEL, OllamaClient, analyze
-from .smoke import smoke_test
+from .smoke import CMD_STATUSES_BROKEN, CMD_STATUSES_PASS, smoke_test
 from .tailor import T_RULES, tailor_all
 from .watch import watch_all
 
@@ -399,13 +399,16 @@ def cmd_test(args) -> int:
         print(f"    {c(tag.ljust(5), mark)} L{r.line:<5} {r.command[:70]}"
               + (f"  {c(r.detail, 'dim')}" if r.detail else ""))
     cnt = rep.counts()
-    bad = sum(cnt.get(k, 0) for k in ("missing_file", "missing_interp", "syntax_fail", "crashed"))
+    bad = sum(cnt.get(k, 0) for k in CMD_STATUSES_BROKEN)
     print(f"\n  {len(rep.results)} commands checked - "
           f"{c(str(cnt.get('ok',0)) + ' pass', 'ok')}   "
           f"{c(str(bad) + ' broken', 'error' if bad else 'dim')}   "
           f"{cnt.get('unsafe_skipped',0)} skipped (unsafe)   "
           f"{cnt.get('unverified',0)} unverified (placeholder paths)")
-    return 1 if bad else 0
+    # green only when every outcome is a declared pass state - a status the
+    # vocabulary doesn't know (or one a foreign report smuggles past the
+    # constructor) can never exit 0
+    return 0 if all(r.status in CMD_STATUSES_PASS for r in rep.results) else 1
 
 
 def cmd_watch(args) -> int:
