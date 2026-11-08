@@ -6,7 +6,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 SEVERITIES = ("error", "warn", "info")
+SEV_ORDER = {sev: i for i, sev in enumerate(SEVERITIES)}
 _SEV_PENALTY = {"error": 8, "warn": 3, "info": 1}
+
+
+def check_severity(sev: str) -> str:
+    """The one gate on the severity vocabulary: a Finding's severity is
+    only ever one of SEVERITIES. Reject anything else where the value is
+    parsed (Finding construction) so a bad literal fails at its own site
+    instead of crashing render or silently costing zero score penalty."""
+    if sev not in SEVERITIES:
+        raise ValueError(
+            f"unknown severity {sev!r}; want one of {SEVERITIES}")
+    return sev
 
 
 @dataclass
@@ -58,12 +70,15 @@ class Skill:
 @dataclass
 class Finding:
     rule: str
-    severity: str           # error | warn | info
+    severity: str           # one of SEVERITIES - enforced in __post_init__
     skill: str              # skill slug
     file: Path
     message: str
     line: int = 0
     fixable: bool = False   # can surgeon propose a concrete edit?
+
+    def __post_init__(self) -> None:
+        self.severity = check_severity(self.severity)
 
 
 @dataclass
@@ -123,14 +138,14 @@ class Report:
     def counts(self) -> dict:
         c = {"error": 0, "warn": 0, "info": 0}
         for f in self.findings:
-            c[f.severity] = c.get(f.severity, 0) + 1
+            c[f.severity] += 1
         return c
 
     def score_for(self, slug: str) -> int:
         s = 100
         for f in self.findings:
             if f.skill == slug:
-                s -= _SEV_PENALTY.get(f.severity, 0)
+                s -= _SEV_PENALTY[f.severity]
         for col in self.collisions:
             if slug in (col.get("a"), col.get("b")):
                 s -= 4

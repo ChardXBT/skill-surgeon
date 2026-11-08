@@ -598,5 +598,110 @@ class TestBaselineAndCli(TmpCase):
         self.assertTrue(log.is_file())
 
 
+# --- implicit state machines (audit: IMPLICIT-STATE-MACHINES.md) --------------
+
+class TestCmdResultStatus(TmpCase):
+    """CmdResult.status was a free-form str: a typo'd or unlisted status
+    rendered '?'/'info', dodged the hand-maintained "broken" tuple and
+    `surgeon test` exited 0 - a green CI on a broken skill."""
+
+    def test_unknown_status_rejected_at_construction(self):
+        for bad in ("missing_inter", "okish", "", "OK", None):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                smoke.CmdResult("s", 1, "cmd", bad)
+
+    def test_all_declared_statuses_construct(self):
+        self.assertEqual(
+            {"ok", "missing_file", "missing_interp", "syntax_fail",
+             "crashed", "unsafe_skipped", "timeout", "unverified"},
+            set(smoke.CMD_STATUSES))
+        for st in smoke.CMD_STATUSES:
+            self.assertEqual(st, smoke.CmdResult("s", 1, "cmd", st).status)
+
+    def test_unknown_status_exits_non_green(self):
+        """A status that dodges construction (post-hoc mutation, a foreign
+        SmokeReport) must fail the CI gate, not render '?' and exit 0."""
+        p = write_skill(self.root, "demo", "```\necho hi\n```\n")
+        r = smoke.CmdResult("demo", 1, "echo hi", "ok")
+        r.status = "bogus-status"            # bypass the constructor gate
+        rep = smoke.SmokeReport(results=[r])
+        buf = io.StringIO()
+        with redirect_stdout(buf), \
+                mock.patch("surgeon.cli.detect", return_value=fake_env()), \
+                mock.patch("surgeon.cli.smoke_test", return_value=rep):
+            rc = cli.main(["test", str(p.parent)])
+        self.assertEqual(1, rc)
+        self.assertIn("?", buf.getvalue())
+
+    def test_known_outcomes_keep_their_gate_verdicts(self):
+        """ok/timeout/unsafe_skipped/unverified stay green; the four broken
+        states still exit 1 - same verdicts as the old 'bad' tuple."""
+        p = write_skill(self.root, "demo", "```\necho hi\n```\n")
+        for st, want in (("ok", 0), ("timeout", 0), ("unsafe_skipped", 0),
+                         ("unverified", 0), ("missing_file", 1),
+                         ("missing_interp", 1), ("syntax_fail", 1),
+                         ("crashed", 1)):
+            rep = smoke.SmokeReport(
+                results=[smoke.CmdResult("demo", 1, "echo hi", st)])
+            with redirect_stdout(io.StringIO()), \
+                    mock.patch("surgeon.cli.detect", return_value=fake_env()), \
+                    mock.patch("surgeon.cli.smoke_test", return_value=rep):
+                rc = cli.main(["test", str(p.parent)])
+            self.assertEqual(want, rc, st)
+
+
+class TestFindingSeverity(TmpCase):
+    """Finding.severity was a free-form str: 'errors' crashed the terminal
+    render via sev_order[x.severity] yet cost 0 penalty in the score
+    (_SEV_PENALTY.get(..., 0)) - one bad datum, opposite failure modes."""
+
+    def _foreign_finding(self, sev):
+        f = Finding("X000", "error", "s", Path("x.md"), "m")
+        f.severity = sev                     # bypass the constructor gate
+        return f
+
+    def test_unknown_severity_rejected_at_construction(self):
+        for bad in ("errors", "warning", "", "WARN"):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                Finding("X000", bad, "s", Path("x.md"), "m")
+
+    def test_declared_severities_construct(self):
+        for sev in ("error", "warn", "info"):
+            self.assertEqual(
+                sev, Finding("X000", sev, "s", Path("x.md"), "m").severity)
+
+    def test_score_does_not_inflate_on_foreign_severity(self):
+        """An unknown severity must fail loudly, not subtract 0 penalty."""
+        rep = Report(skills=[mock.Mock(slug="s")],
+                     findings=[self._foreign_finding("bogus")])
+        with self.assertRaises(KeyError):
+            rep.score()
+
+    def test_counts_fail_loudly_on_foreign_severity(self):
+        rep = Report(findings=[self._foreign_finding("bogus")])
+        with self.assertRaises(KeyError):
+            rep.counts()
+
+    def test_terminal_render_fails_loudly_on_foreign_severity(self):
+        rep = Report(findings=[self._foreign_finding("bogus")])
+        with self.assertRaises(KeyError):
+            render_terminal(rep, [])
+
+    def test_baseline_entries_with_unknown_severity_still_diff(self):
+        """Baselines and `scan --json` files are parsed input: a stale or
+        odd severity there must not break `surgeon diff` (severity never
+        fed the finding signature anyway)."""
+        old = {"surgeon_baseline": 1, "saved": "x", "score": 90, "skills": 1,
+               "findings": [{"rule": "S007", "severity": "bogus",
+                             "skill": "s", "message": "dead ref `a.md`"},
+                            {"rule": "S008", "skill": "s",
+                             "message": "no severity key at all"}]}
+        p = self.root / "b.json"
+        p.write_text(json.dumps(old), encoding="utf-8")
+        d = baseline.diff_baseline(p, Report())
+        self.assertEqual(2, len(d["resolved"]))
+        self.assertEqual("bogus", d["resolved"][0]["severity"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from .model import Report
+from .model import SEV_ORDER, Report
 
 _C = {"error": "\033[91m", "warn": "\033[93m", "info": "\033[96m",
       "ok": "\033[92m", "dim": "\033[2m", "bold": "\033[1m", "r": "\033[0m"}
@@ -42,8 +42,7 @@ def render_terminal(report: Report, roots: list[Path]) -> str:
                f"{c(str(counts['info']) + ' suggestions', 'info')}")
     out.append("")
 
-    sev_order = {"error": 0, "warn": 1, "info": 2}
-    for f in sorted(report.findings, key=lambda x: (x.file.as_posix(), sev_order[x.severity], x.line)):
+    for f in sorted(report.findings, key=lambda x: (x.file.as_posix(), SEV_ORDER[x.severity], x.line)):
         loc = f"{f.file}"
         line = f":{f.line}" if f.line else ""
         tag = f.severity.upper().ljust(5)
@@ -77,9 +76,8 @@ def render_markdown(report: Report, roots: list[Path]) -> str:
         "| Severity | Rule | Skill | Finding | Location |",
         "|---|---|---|---|---|",
     ]
-    sev_order = {"error": 0, "warn": 1, "info": 2}
     for f in sorted(report.findings,
-                    key=lambda x: (sev_order.get(x.severity, 3), x.skill)):
+                    key=lambda x: (SEV_ORDER[x.severity], x.skill)):
         # every entry is "SKILL.md" - keep the owning dir so rows are findable
         name = f"{f.file.parent.name}/{f.file.name}"
         loc = f"{name}:{f.line}" if f.line else name

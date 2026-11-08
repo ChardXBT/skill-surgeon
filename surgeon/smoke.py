@@ -88,14 +88,40 @@ SKILL_DIR_TOKEN_RE = re.compile(
 _SCRIPT_RUNNERS = {"python", "python3", "py", "node", "bash", "sh", "zsh",
                    "ruby", "deno", "bun", "tsx", "ts-node"}
 
+# The closed vocabulary of check outcomes - a command check always ends in
+# exactly one of these. `surgeon test` may exit green only for the states
+# in CMD_STATUSES_PASS; an outcome the vocabulary doesn't know can never
+# pass the CI gate (and a new state added here must be classified into
+# PASS or it breaks the gate by default - the lockstep is enforced).
+CMD_STATUSES = ("ok", "missing_file", "missing_interp", "syntax_fail",
+                "crashed", "unsafe_skipped", "timeout", "unverified")
+CMD_STATUSES_PASS = frozenset(
+    {"ok", "timeout", "unsafe_skipped", "unverified"})
+# the complement - outcomes that break the gate (the "N broken" count)
+CMD_STATUSES_BROKEN = frozenset(CMD_STATUSES) - CMD_STATUSES_PASS
+
+
+def check_status(status: str) -> str:
+    """The one gate on the status vocabulary: a CmdResult's status is only
+    ever one of CMD_STATUSES. Reject anything else where the value is
+    parsed (CmdResult construction) so a bad literal fails at its own
+    site instead of rendering '?' and exiting 0 on a broken skill."""
+    if status not in CMD_STATUSES:
+        raise ValueError(
+            f"unknown command status {status!r}; want one of {CMD_STATUSES}")
+    return status
+
 
 @dataclass
 class CmdResult:
     skill: str
     line: int
     command: str
-    status: str          # ok | missing_file | missing_interp | syntax_fail | crashed | unsafe_skipped | timeout | unverified
+    status: str          # one of CMD_STATUSES - enforced in __post_init__
     detail: str = ""
+
+    def __post_init__(self) -> None:
+        self.status = check_status(self.status)
 
 
 @dataclass
